@@ -10,8 +10,9 @@
 #include <utility>
 
 
-V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int bid, unsigned address){
-  fBoardHandle = -1;
+V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int link, int crate, int bid, unsigned address){
+  std::cout<<"Hellooo! I am V1724"<<std::endl;
+  fBoardHandle=fBID=-1;
   fLog = log;
 
   fAqCtrlRegister = 0x8100;
@@ -33,15 +34,18 @@ V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int
   fSampleWidth = 10;
   fClockCycle = 10;
   fBID = bid;
-  fBaseAddress = address;
+  fBaseAddress=address;
   fRolloverCounter = 0;
   fLastClock = 0;
   fBLTSafety = opts->GetDouble("blt_safety_factor", 1.5);
-  BLT_SIZE = opts->GetInt("blt_size", 512*1024);
+  BLT_SIZE = opts->GetInt("blt_size", 512*1024); // one channel's memory
   // there's a more elegant way to do this, but I'm not going to write it
   fClockPeriod = std::chrono::nanoseconds((1l<<31)*fClockCycle);
   fArtificialDeadtimeChannel = 790;
 
+  if (Init(link, crate, opts)) {
+    throw std::runtime_error("Board init failed");
+  }
 }
 
 V1724::~V1724(){
@@ -54,6 +58,7 @@ V1724::~V1724(){
 }
 
 int V1724::Init(int link, int crate, std::shared_ptr<Options>& opts) {
+  std::cout << "hootiehooo I am initializing "<< std::endl;
   int a = CAENVME_Init(cvV2718, link, crate, &fBoardHandle);
   if(a != cvSuccess){
     fLog->Entry(MongoLog::Warning, "Board %i failed to init, error %i handle %i link %i bdnum %i",
@@ -95,8 +100,6 @@ int V1724::Init(int link, int crate, std::shared_ptr<Options>& opts) {
 
 int V1724::SINStart(){
   fLastClockTime = std::chrono::high_resolution_clock::now();
-  fRolloverCounter = 0;
-  fLastClock = 0;
   return WriteRegister(fAqCtrlRegister,0x105);
 }
 int V1724::SoftwareStart(){
@@ -183,6 +186,8 @@ int V1724::GetClockCounter(uint32_t timestamp){
     // not a rollover
   }
   fLastClock = timestamp;
+  //fLog->Entry(MongoLog::Local, "Board %i timestamp %i", fBID, timestamp);
+  //std::cout<<"Board "<<fBID<<" timestamp: "<<timestamp<<std::endl;
   return fRolloverCounter;
 }
 
@@ -190,6 +195,7 @@ int V1724::WriteRegister(unsigned int reg, unsigned int value){
   uint32_t write=0;
   write+=value;
   int ret = 0;
+  //std::cout<<"Call WriteRegister: "<<"fBoardHandle: "<<fBoardHandle<< ", fBaseAddress: "<<fBaseAddress<< " +reg "<<reg<< "cvSuccess: "<<cvSuccess<<std::endl;
   if((ret = CAENVME_WriteCycle(fBoardHandle, fBaseAddress+reg,
 			&write,cvA32_U_DATA,cvD32)) != cvSuccess){
     fLog->Entry(MongoLog::Warning,
@@ -276,6 +282,8 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
 int V1724::LoadDAC(std::vector<uint16_t> &dac_values){
   // Loads DAC values into registers
   for(unsigned int x=0; x<fNChannels; x++){
+//      std::cout<<"Channel: "<< x << std::endl;
+//      std::cout<<"dac value of the channel "<< x << " is " << dac_values[x] << std::endl;
     if(WriteRegister((fChDACRegister)+(0x100*x), dac_values[x])!=0){
       fLog->Entry(MongoLog::Error, "Board %i failed writing DAC 0x%04x in channel %i",
 		  fBID, dac_values[x], x);
