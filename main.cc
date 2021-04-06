@@ -15,63 +15,46 @@
 #include <mongocxx/instance.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
-#include <mongocxx/uri.hpp>
-#include <mongocxx/database.hpp>
-#include <mongocxx/client.hpp>
-#include <mongocxx/pool.hpp>
-
-#ifndef REDAX_BUILD_COMMIT
-#define REDAX_BUILD_COMMIT "unknown"
-#endif
 
 std::atomic_bool b_run = true;
 std::string hostname = "";
-
+ 
 void SignalHandler(int signum) {
     std::cout << "\nReceived signal "<<signum<<std::endl;
     b_run = false;
     return;
 }
 
-void UpdateStatus(std::shared_ptr<mongocxx::pool> pool, std::string dbname,
-    std::unique_ptr<DAQController>& controller) {
+void UpdateStatus(std::string suri, std::string dbname, std::unique_ptr<DAQController>& controller) {
+  mongocxx::uri uri(suri);
+  mongocxx::client c(uri);
+  mongocxx::collection status = c[dbname]["status"];
   using namespace std::chrono;
-  auto client = pool->acquire();
-  auto db = (*client)[dbname];
-  auto collection = db["status"];
   while (b_run == true) {
-    auto start = std::chrono::system_clock::now();
     try{
-      controller->StatusUpdate(&collection);
+      controller->StatusUpdate(&status); //send in DAQController, this is done in this function for redax1.0
     }catch(const std::exception &e){
       std::cout<<"Can't connect to DB to update."<<std::endl;
       std::cout<<e.what()<<std::endl;
     }
-    auto end = std::chrono::system_clock::now();
-    std::this_thread::sleep_for(seconds(1)-(end-start));
+    std::this_thread::sleep_for(seconds(1));
   }
   std::cout<<"Status update returning\n";
 }
 
 int PrintUsage() {
-  std::cout<<"Welcome to REDAX\nAccepted command-line arguments:\n"
+  std::cout<<"Welcome to REDAX readout\nAccepted command-line arguments:\n"
     << "--id <id number>: id number of this readout instance, required\n"
     << "--uri <mongo uri>: full MongoDB URI, required\n"
     << "--db <database name>: name of the database to use, default \"daq\"\n"
     << "--logdir <directory>: where to write the logs, default pwd\n"
     << "--reader: this instance is a reader\n"
     << "--cc: this instance is a crate controller\n"
-    << "--arm-delay <delay>: ms to wait between the ARM command and the arming sequence, default 0\n"
-    << "--log-retention <value>: how many days to keep logfiles, default 7, 0 = forever\n"
+    << "--arm-delay <delay>: ms to wait between the ARM command and the arming sequence, default 15000\n"
+    << "--log-retention <value>: how many days to keep logfiles, default 7\n"
     << "--help: print this message\n"
-    << "--version: print version information and return\n"
     << "\n";
   return 1;
-}
-
-int PrintVersion() {
-  std::cout << "Redax commit " << REDAX_BUILD_COMMIT << "\n";
-  return 0;
 }
 
 int main(int argc, char** argv){
@@ -85,8 +68,8 @@ int main(int argc, char** argv){
   std::string current_run_id="none", log_dir = "";
   std::string dbname = "daq", suri = "", sid = "";
   bool reader = false, cc = false;
-  int log_retention = 7; // days, 0 = someone else's problem
-  int c(0), opt_index, delay(0);
+  int log_retention = 7; // days
+  int c(0), opt_index, delay(15000);
   struct option longopts[] = {
     {"id", required_argument, 0, c++},
     {"uri", required_argument, 0, c++},
@@ -96,8 +79,7 @@ int main(int argc, char** argv){
     {"cc", no_argument, 0, c++},
     {"arm-delay", required_argument, 0, c++},
     {"log-retention", required_argument, 0, c++},
-    {"help", no_argument, 0, c++},
-    {"version", no_argument, 0, c++}
+    {"help", no_argument, 0, c++}
   };
   while ((c = getopt_long(argc, argv, "", longopts, &opt_index)) != -1) {
     switch(c) {
@@ -118,9 +100,6 @@ int main(int argc, char** argv){
       case 7:
         log_retention = std::stoi(optarg); break;
       case 8:
-        return PrintUsage();
-      case 9:
-        return PrintVersion();
       default:
         std::cout<<"Received unknown arg\n";
         return PrintUsage();
@@ -138,28 +117,23 @@ int main(int argc, char** argv){
   gethostname(chostname, HOST_NAME_MAX);
   hostname=chostname;
   hostname+= (reader ? "_reader_" : "_controller_") + sid;
-  PrintVersion();
-  std::cout<<"Reader starting with ID: "<<hostname<<std::endl;
+  std::cout<<"Reader starting with ID: (hostname+id) "<<hostname<<std::endl;
 
   // MongoDB Connectivity for control database. Bonus for later:
   // exception wrap the URI parsing and client connection steps
   mongocxx::uri uri(suri.c_str());
-  auto pool = std::make_shared<mongocxx::pool>(uri);
-  auto client = pool->acquire();
-  mongocxx::database db = (*client)[dbname];
+  //We use the mongocxx::client class in order to connect to a running MongoDB instance, see the "Tutorial for mongocxx" for more informations 
+  mongocxx::client client(uri);
+  //ACCESS A DATABASE: database istance, once we have connected the client to the MongoDB deployment
+  mongocxx::database db = client[dbname];
+  //ACCESS A COLLECTION
   mongocxx::collection control = db["control"];
-  mongocxx::collection opts_collection = db["options"];
+  mongocxx::collection status = db["status"];
+  mongocxx::collection options_collection = db["options"];
+  mongocxx::collection dac_collection = db["dac_calibration"];
 
   // Logging
-  std::shared_ptr<MongoLog> fLog;
-  if (log_dir == "nT")
-    fLog = std::make_shared<MongoLog_nT>(pool, dbname, hostname);
-  else
-    fLog = std::make_shared<MongoLog>(log_retention, pool, dbname, log_dir, hostname);
-  if (fLog->Initialize()) {
-    std::cout<<"Could not initialize logs!\n";
-    exit(-1);
-  }
+  auto fLog = std::make_shared<MongoLog>(log_retention, log_dir, suri, dbname, "log", hostname);
 
   //Options
   std::shared_ptr<Options> fOptions;
@@ -169,28 +143,52 @@ int main(int argc, char** argv){
   std::unique_ptr<DAQController> controller;
   if (cc)
     controller = std::make_unique<CControl_Handler>(fLog, hostname);
-  else
+  else{
     controller = std::make_unique<DAQController>(fLog, hostname);
-  std::thread status_update(&UpdateStatus, pool, dbname, std::ref(controller));
-
-  using namespace bsoncxx::builder::stream;
+  }
+//  std::cout<<"test test hostname "<<hostname<<std::endl;
+//  std::cout<<"test test DBname "<<dbname<<std::endl;
+//  std::cout<<"test test URI    "<<suri<<std::endl;
+  std::thread status_update(&UpdateStatus, suri, dbname, std::ref(controller));
+    
   // Sort oldest to newest
-  auto opts = mongocxx::options::find_one_and_update{};
-  opts.sort(document{} << "_id" << 1 << finalize);
-  std::string ack_host = "acknowledged." + hostname;
-  auto query = document{} << "host" << hostname << ack_host << 0 << finalize;
-  auto update = document{} << "$currentDate" << open_document <<
-    ack_host << true << close_document << finalize;
+  auto order = bsoncxx::builder::stream::document{} <<
+    "_id" << 1 <<bsoncxx::builder::stream::finalize;
+  auto opts = mongocxx::options::find{};
+  opts.sort(order.view());
   using namespace std::chrono;
+  
   // Main program loop. Scan the database and look for commands addressed
   // to this hostname. 
   while(b_run == true){
     // Try to poll for commands
+    bsoncxx::stdx::optional<bsoncxx::document::value> querydoc;
     try{
-      auto qdoc = control.find_one_and_update(query.view(), update.view(), opts);
-      if (qdoc) {
+     mongocxx::cursor cursor = control.find(
+	 bsoncxx::builder::stream::document{} << "host" << hostname << "acknowledged." + hostname <<
+	 bsoncxx::builder::stream::open_document << "$exists" << 0 <<
+	 bsoncxx::builder::stream::close_document << 
+	 bsoncxx::builder::stream::finalize, opts
+	 );
+        
+        for(auto doc : cursor) {
+	fLog->Entry(MongoLog::Debug, "Found a doc with command %s",
+	  doc["command"].get_utf8().value.to_string().c_str());
+	// Very first thing: acknowledge we've seen the command. If the command
+	// fails then we still acknowledge it because we tried
+        auto ack_time = system_clock::now();   
+        std::cout << "HOSTNAME = "<<hostname<<" ID "<<(doc)["_id"].get_oid().value.to_string()<<std::endl;
+	control.update_one(
+	   bsoncxx::builder::stream::document{} << "_id" << (doc)["_id"].get_oid() <<
+	   bsoncxx::builder::stream::finalize,
+	   bsoncxx::builder::stream::document{} << "$set" <<
+	   bsoncxx::builder::stream::open_document << "acknowledged." + hostname <<
+           (long)duration_cast<milliseconds>(ack_time.time_since_epoch()).count() <<
+	   bsoncxx::builder::stream::close_document <<
+	   bsoncxx::builder::stream::finalize
+	   );
+
 	// Get the command out of the doc
-        auto doc = qdoc->view();
 	std::string command = "";
 	std::string user = "";
 	try{
@@ -198,11 +196,10 @@ int main(int argc, char** argv){
 	  user = (doc)["user"].get_utf8().value.to_string();
 	}
 	catch (const std::exception &e){
+	  //LOG
 	  fLog->Entry(MongoLog::Warning, "Received malformed command %s",
 			bsoncxx::to_json(doc).c_str());
 	}
-	fLog->Entry(MongoLog::Debug, "Found a doc with command %s", command.c_str());
-        auto ack_time = system_clock::now();
 
 	// Process commands
 	if(command == "start"){
@@ -224,28 +221,26 @@ int main(int argc, char** argv){
           auto now = system_clock::now();
           fLog->Entry(MongoLog::Local, "Ack to stop took %i us",
               duration_cast<microseconds>(now-ack_time).count());
-          fLog->SetRunId(-1);
-          fOptions.reset();
 	} else if(command == "arm"){
-	  // Can only arm if we're idle
-	  if(controller->status() == 0){
+	  // Can only arm if we're in the idle, arming, or armed state
+	  if(controller->status() >= 0 || controller->status() <= 2){
 	    controller->Stop();
 
 	    // Get an override doc from the 'options_override' field if it exists
 	    std::string override_json = "";
 	    try{
-	      auto oopts = doc["options_override"].get_document().view();
+	      bsoncxx::document::view oopts = doc["options_override"].get_document().view();
 	      override_json = bsoncxx::to_json(oopts);
 	    }
 	    catch(const std::exception &e){
+	      fLog->Entry(MongoLog::Debug, "No override options provided, continue without.");
 	    }
 	    // Mongocxx types confusing so passing json strings around
             std::string mode = doc["mode"].get_utf8().value.to_string();
             fLog->Entry(MongoLog::Local, "Getting options doc for mode %s", mode.c_str());
-	    fOptions = std::make_shared<Options>(fLog, mode, hostname, &opts_collection,
-			      pool, dbname, override_json);
+	    fOptions = std::make_shared<Options>(fLog, mode,
+				   hostname, suri, dbname, override_json);
             int dt = duration_cast<milliseconds>(system_clock::now()-ack_time).count();
-            fLog->SetRunId(fOptions->GetInt("number", -1));
             fLog->Entry(MongoLog::Local, "Took %i ms to load config", dt);
             if (dt < delay) std::this_thread::sleep_for(milliseconds(delay-dt));
 	    if(controller->Arm(fOptions) != 0){
@@ -258,8 +253,9 @@ int main(int argc, char** argv){
 	  else
 	    fLog->Entry(MongoLog::Warning, "Cannot arm DAQ while not 'Idle'");
 	} else if (command == "quit") b_run = false;
-      } // if doc
-    }catch(const std::exception &e){
+      } // for doc in cursor
+    }
+    catch(const std::exception &e){
       std::cout<<e.what()<<std::endl;
       std::cout<<"Can't connect to DB so will continue what I'm doing"<<std::endl;
     }
