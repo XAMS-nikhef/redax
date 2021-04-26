@@ -14,12 +14,8 @@
 #include <atomic>
 #include <thread>
 #include <experimental/filesystem>
-#include <memory>
-#include <tuple>
 
-#include <mongocxx/pool.hpp>
 #include <mongocxx/client.hpp>
-#include <mongocxx/database.hpp>
 #include <mongocxx/collection.hpp>
 
 /* 
@@ -57,8 +53,12 @@ class MongoLog{
   */
 
 public:
-  MongoLog(int, std::shared_ptr<mongocxx::pool>&, std::string, std::string, std::string);
+  MongoLog(int DeleteAfterDays, std::string log_dir, std::string, std::string, std::string, std::string);
   ~MongoLog();
+  
+  int  Initialize(std::string connection_string,
+		  std::string db, std::string collection,
+		  std::string host, bool debug=false);
 
   const static int Debug   = 0;  // Verbose output
   const static int Message = 1;  // Normal output
@@ -67,28 +67,20 @@ public:
   const static int Fatal   = 4;  // Program gonna die
   const static int Local   = -1; // Write to local (file) log only
 
-  virtual int Initialize() {return RotateLogFile();}
-  virtual int Entry(int priority, std::string, ...);
+  int Entry(int priority,std::string message, ...);
   void SetRunId(const int runid) {fRunId = runid;}
 
-protected:
-  std::tuple<struct tm, int> Now();
+private:
   void Flusher();
+  std::string FormatTime(struct tm* date);
+  int Today(struct tm* date);
   int RotateLogFile();
-  virtual std::string FormatTime(struct tm*, int);
-  virtual int Today(struct tm*);
-  virtual std::string LogFileName(struct tm*);
-  virtual std::experimental::filesystem::path OutputDirectory(struct tm*);
-  virtual std::experimental::filesystem::path LogFilePath(struct tm*);
-
-
-  std::shared_ptr<mongocxx::pool> fPool;
-  mongocxx::pool::entry fClient;
-  mongocxx::database fDB;
-  mongocxx::collection fCollection;
+  std::string LogFileName(struct tm* date);
   std::vector<std::string> fPriorities{"LOCAL", "DEBUG", "MESSAGE",
       "WARNING", "ERROR", "FATAL"};
   std::ofstream fOutfile;
+  mongocxx::client fMongoClient;
+  mongocxx::collection fMongoCollection;
   std::string fHostname;
   int fLogLevel;
   int fDeleteAfterDays;
@@ -101,15 +93,4 @@ protected:
   int fRunId;
 };
 
-class MongoLog_nT : public MongoLog {
-public:
-  // subclass to support the managed logging
-  MongoLog_nT(std::shared_ptr<mongocxx::pool>& pool, std::string dbname, std::string host) :
-    MongoLog(0, pool, dbname, "/daq_common/logs", host) {}
-  virtual ~MongoLog_nT() {}
-
-protected:
-  virtual std::string LogFileName(struct tm*);
-  virtual std::experimental::filesystem::path OutputDirectory(struct tm*);
-};
 #endif

@@ -185,7 +185,7 @@ class MongoConnect():
             rate = 0
             mode = None
             buff = 0
-            run_num = -1
+#             run_num = -1
             for doc in self.latest_status[detector]['readers'].values():
                 try:
                     rate += doc['rate']
@@ -232,12 +232,13 @@ class MongoConnect():
             #        detector, [x.name for x in status_list], status.name))
 #            if detector == 'neutron_veto':
 #                status = STATUS.IDLE
-
+            
             self.latest_status[detector]['status'] = status
             self.latest_status[detector]['rate'] = rate
             self.latest_status[detector]['mode'] = mode
             self.latest_status[detector]['buffer'] = buff
-            self.latest_status[detector]['number'] = run_num
+            if 'number' not in self.latest_status[detector]:
+                self.latest_status[detector]['number'] = -1
 
 
     def GetWantedState(self):
@@ -350,7 +351,9 @@ class MongoConnect():
         if cursor.count() == 0:
             self.log.info("wtf, first run?")
             return 0
-        return list(cursor)[0]['number']+1
+        next_number = list(cursor)[0]['number']+1
+        self.log.info(f'next number is {next_number}')
+        return next_number
 
     def SetStopTime(self, number, detector, force):
         '''
@@ -398,8 +401,8 @@ class MongoConnect():
                     return -1
                 n_id = '%06i' % number
                 self.latest_status[detector]['number'] = number
-                print("In SendCommand if arm, the n_id is:", n_id)
-                print("In SendCommand if arm, the number of the latest_status is:",number)
+                self.log.info(f"In SendCommand if arm, the n_id is: {n_id}")
+                self.log.info(f"In SendCommand if arm, the number of the latest_status is: {number}")
             doc_base = {
                 "command": command,
                 "user": user,
@@ -409,7 +412,7 @@ class MongoConnect():
                 "number": number,
                 "createdAt": datetime.datetime.utcnow()
             }
-            print("In SendCommand if arm, the options_override number is: ",number)
+            self.log.info(f"In SendCommand if arm, the options_override number is: {number}")
             if delay == 0:
                 docs = doc_base
                 docs['host'] = hosts[0]+hosts[1] if isinstance(hosts, tuple) else hosts
@@ -484,10 +487,11 @@ class MongoConnect():
     def InsertRunDoc(self, detector, goal_state):
 
         number = self.GetNextRunNumber()
-        print("In InsertRunDoc, the number:", number)
+        self.log.info(f"In InsertRunDoc, the number:{number}")
         if number == -1:
             self.log.error("DB having a moment")
             return -1
+        self.log.info(f'Update {self.latest_status[detector].get("number")} to {number}')
         self.latest_status[detector]['number'] = number
         detectors = [detector]
 #        if detector == 'tpc' and goal_state['tpc']['link_nv'] == 'true':

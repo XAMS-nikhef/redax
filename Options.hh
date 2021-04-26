@@ -7,14 +7,10 @@
 #include <streambuf>
 #include <iostream>
 #include <stdexcept>
-#include <memory>
-#include <map>
-#include <mongocxx/pool.hpp>
-#include <mongocxx/client.hpp>
-#include <mongocxx/database.hpp>
-#include <mongocxx/collection.hpp>
 #include <bsoncxx/document/view.hpp>
 #include <bsoncxx/document/value.hpp>
+#include <mongocxx/collection.hpp>
+#include <mongocxx/client.hpp>
 
 struct BoardType{
   int link;
@@ -71,7 +67,7 @@ class MongoLog;
 class Options{
 
 public:
-  Options(std::shared_ptr<MongoLog>&, std::string, std::string, mongocxx::collection*, std::shared_ptr<mongocxx::pool>&, std::string, std::string);
+  Options(std::shared_ptr<MongoLog>&, std::string, std::string, std::string, std::string, std::string);
   ~Options();
 
   int GetInt(std::string, int=-1);
@@ -82,30 +78,29 @@ public:
 
   std::vector<BoardType> GetBoards(std::string);
   std::vector<RegisterType> GetRegisters(int, bool=false);
-  std::vector<uint16_t> GetDAC(int, int, uint16_t);
-  int GetV1495Opts(std::map<std::string, int>&);
+  int GetDAC(std::map<int, std::map<std::string, std::vector<double>>>&, std::vector<int>&);
   int GetCrateOpt(CrateOptions &ret);
   int GetHEVOpt(HEVOptions &ret);
   int16_t GetChannel(int, int);
   int GetNestedInt(std::string, int);
   std::vector<uint16_t> GetThresholds(int);
   int GetFaxOptions(fax_options_t&);
-  uint16_t GetSingleDAC(int, int, uint16_t);
 
-  void UpdateDAC(std::map<int, std::vector<uint16_t>>&);
+  void UpdateDAC(std::map<int, std::map<std::string, std::vector<double>>>&);
+  void SaveBenchmarks(std::map<std::string, std::map<int, long>>&, long, std::string,
+      std::map<std::string, double>&);
 
 private:
-  int Load(std::string, mongocxx::collection*, std::string);
+  int Load(std::string, mongocxx::collection&, std::string);
+  int Override(bsoncxx::document::view);
+  mongocxx::client fClient;
   bsoncxx::document::view bson_options;
   bsoncxx::document::value *bson_value;
   std::shared_ptr<MongoLog> fLog;
+  mongocxx::collection fDAC_collection;
+  std::string fDBname;
   std::string fHostname;
   std::string fDetector;
-  std::shared_ptr<mongocxx::pool> fPool;
-  mongocxx::pool::entry fClient; // yes
-  mongocxx::database fDB;
-  mongocxx::collection fDAC_collection;
-  bsoncxx::document::value fDAC_cache;
 };
 
 #endif

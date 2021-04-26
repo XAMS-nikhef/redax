@@ -2,6 +2,10 @@
 #include "DAXHelpers.hh"
 #include "MongoLog.hh"
 
+#include <cmath>
+
+#include <mongocxx/uri.hpp>
+#include <mongocxx/database.hpp>
 #include <bsoncxx/array/view.hpp>
 #include <bsoncxx/types.hpp>
 #include <bsoncxx/json.hpp>
@@ -9,29 +13,15 @@
 #include <bsoncxx/exception/exception.hpp>
 
 Options::Options(std::shared_ptr<MongoLog>& log, std::string options_name, std::string hostname,
-          mongocxx::collection* opts_collection, std::shared_ptr<mongocxx::pool>& pool,
-          std::string dbname, std::string override_opts) : 
-    fLog(log), fHostname(hostname), fPool(pool), fClient(pool->acquire()), 
-    fDAC_cache(bsoncxx::document::view()) {
+          std::string suri, std::string dbname, std::string override_opts) : 
+    fLog(log), fDBname(dbname), fHostname(hostname) {
   bson_value = NULL;
+  mongocxx::uri uri{suri};
+  fClient = mongocxx::client{uri};
+  fDAC_collection = fClient[dbname]["dac_calibration"];
+  mongocxx::collection opts_collection = fClient[dbname]["options"];
   if(Load(options_name, opts_collection, override_opts)!=0)
     throw std::runtime_error("Can't initialize options class");
-  fDB = (*fClient)[dbname];
-  fDAC_collection = fDB["dac_calibration"];
-  int ref = GetInt("baseline_reference_run", -1);
-  bool load_ref = GetString("baseline_dac_mode", "") == "cached" || GetString("baseline_fallback_mode", "") == "cached";
-  if (load_ref && (ref == -1)) {
-    fLog->Entry(MongoLog::Error, "Please specify a reference run to use cached baselines");
-    throw std::runtime_error("Config invalid");
-  }
-  if (load_ref && (ref != -1)) {
-    auto doc = fDAC_collection.find_one(bsoncxx::builder::stream::document{} << "run" << ref << bsoncxx::builder::stream::finalize);
-    if (doc) fDAC_cache = *doc;
-    else {
-      fLog->Entry(MongoLog::Warning, "Could not load baseline reference run %i", ref);
-      throw std::runtime_error("Can't load cached baselines");
-    }
-  }
 }
 
 Options::~Options(){
@@ -41,34 +31,81 @@ Options::~Options(){
   }
 }
 
-int Options::Load(std::string name, mongocxx::collection* opts_collection, std::string override_opts) {
-  using namespace bsoncxx::builder::stream;
-  auto pl = mongocxx::pipeline();
-  pl.match(document{} << "name" << name << finalize);
-  pl.lookup(document{} << "from" << "options" << "localField" << "includes" <<
-      "foreignField" << "name" << "as" << "subconfig" << finalize);
-  pl.add_fields(document{} << "subconfig" << open_document << "$concatArrays" << open_array <<
-      "$subconfig" << open_array << "$$ROOT" << close_array << close_array << close_document <<
-      finalize);
-  pl.unwind("$subconfig");
-  pl.group(document{} << "_id" << 0 << "config" << open_document << "$mergeObjects" <<
-      "$subconfig" << close_document << finalize);
-  pl.replace_root(document{} << "newRoot" << "$config" << finalize);
-  pl.project(document{} << "subconfig" << 0 << finalize);
-  if (override_opts != "")
-    pl.add_fields(bsoncxx::from_json(override_opts));
-  for (auto doc : opts_collection->aggregate(pl)) {
-    bson_value = new bsoncxx::document::value(doc);
-    bson_options = bson_value->view();
-    try{
-      fDetector = bson_options["detectors"][fHostname].get_utf8().value.to_string();
-    }catch(const std::exception& e){
-      fLog->Entry(MongoLog::Warning, "No detector specified for this host");
-      return -1;
-    }
-    return 0;
+int Options::Load(std::string name, mongocxx::collection& opts_collection,
+	std::string override_opts){
+  // Try to pull doc from DB
+  bsoncxx::stdx::optional<bsoncxx::document::value> trydoc;
+  trydoc = opts_collection.find_one(bsoncxx::builder::stream::document{}<<
+				    "name" << name.c_str() << bsoncxx::builder::stream::finalize);
+  if(!trydoc){
+    fLog->Entry(MongoLog::Warning, "Failed to find your options file '%s' in DB", name.c_str());
+    return -1;
   }
-  return -1;
+  if(bson_value != NULL) {
+    delete bson_value;
+    bson_value = NULL;
+  }
+  bson_value = new bsoncxx::document::value((*trydoc).view());
+  bson_options = bson_value->view();
+
+  // Pull all subdocuments
+  int success = 0;
+  try{
+    bsoncxx::array::view include_array = (*trydoc).view()["includes"].get_array().value;
+    for(bsoncxx::array::element ele : include_array){
+      auto sd = opts_collection.find_one(bsoncxx::builder::stream::document{} <<
+					 "name" << ele.get_utf8().value.to_string() <<
+					 bsoncxx::builder::stream::finalize);
+      if(sd)
+	success += Override(*sd); // include_json.push_back(bsoncxx::to_json(*sd));
+      else
+	fLog->Entry(MongoLog::Warning, "Possible improper run config. Check your options includes");
+    }
+  }catch(...){}; // will catch if there are no includes, for example
+
+  if(override_opts != "")
+    success += Override(bsoncxx::from_json(override_opts));
+
+  if(success!=0){
+    fLog->Entry(MongoLog::Warning, "Failed to override options doc with includes and overrides.");
+    return -1;
+  }
+  try{
+    fDetector = bson_options["detectors"][fHostname].get_utf8().value.to_string();
+  }catch(const std::exception& e){
+    fLog->Entry(MongoLog::Warning, "No detector specified for this host");
+    return -1;
+  }
+
+  return 0;
+}
+
+int Options::Override(bsoncxx::document::view override_opts){
+
+  // Here's the best way I can find to do this. We create a new doc, which
+  // is a concatenation of the two old docs (original first). Then we
+  // use the concatenation object to initialize a 'new' value for the
+  // combined doc and delete the orginal. A new view will point to the new value.
+
+  using bsoncxx::builder::stream::document;
+  using bsoncxx::builder::stream::finalize;    
+
+  // auto doc = document{};
+  bsoncxx::document::value *new_value = new bsoncxx::document::value
+    ( document{}<<bsoncxx::builder::concatenate_doc{bson_options}<<
+      // "override_doc" << bsoncxx::builder::stream::open_document<<
+      bsoncxx::builder::concatenate_doc{override_opts}<<
+      // bsoncxx::builder::stream::close_document<<
+      finalize);
+  
+  // Delete the original
+  delete bson_value;
+
+  // Set to new
+  bson_value = new_value;
+  bson_options = bson_value->view();
+
+  return 0;  
 }
 
 long int Options::GetLongInt(std::string path, long int default_value){
@@ -110,7 +147,6 @@ double Options::GetDouble(std::string path, double default_value) {
 }
 
 int Options::GetInt(std::string path, int default_value){
-
   try{
     return bson_options[path].get_int32();
   }
@@ -160,13 +196,9 @@ std::vector<BoardType> Options::GetBoards(std::string type){
   std::vector <std::string> types;
   if(type == "V17XX")
     types = {"V1724", "V1730", "V1724_MV", "f1724"};
-  else if (type == "V27XX")
-    types = {"V2718", "f2718"};
-  else if (type == "V1495")
-    types = {"V1495", "V1495_TPC"};
   else
     types.push_back(type);
-
+  
   for(bsoncxx::array::element ele : subarr){
     std::string btype = ele["type"].get_utf8().value.to_string();
     if(!std::count(types.begin(), types.end(), btype))
@@ -231,23 +263,6 @@ std::vector<u_int16_t> Options::GetThresholds(int board) {
     fLog->Entry(MongoLog::Local, "Using default thresholds for %i", board);
     return std::vector<u_int16_t>(16, default_threshold);
   }
-}
-
-int Options::GetV1495Opts(std::map<std::string, int>& ret) {
-  if (bson_options.find("V1495") == bson_options.end())
-    return 1;
-  auto subdoc = bson_options["V1495"].get_document().value;
-  if (subdoc.find(fDetector) == subdoc.end())
-    return 1;
-  try {
-    for (auto& value : subdoc[fDetector].get_document().value)
-      ret[std::string(value.key())] = value.get_int32().value;  // TODO std::any
-    return 0;
-  } catch (std::exception& e) {
-    fLog->Entry(MongoLog::Local, "Exception getting V1495 opts: %s", e.what());
-    return -1;
-  }
-  return 1;
 }
 
 int Options::GetCrateOpt(CrateOptions &ret){
@@ -317,53 +332,118 @@ int Options::GetFaxOptions(fax_options_t& opts) {
   return 0;
 }
 
-std::vector<uint16_t> Options::GetDAC(int bid, int num_chan, uint16_t default_value) {
-  std::vector<uint16_t> ret(num_chan, default_value);
-  auto doc = fDAC_cache.view();
-  if (doc.find(std::to_string(bid)) == doc.end()) {
-    fLog->Entry(MongoLog::Message, "No cached baselines for board %i, using default %04x",
-        bid, default_value);
-    return ret;
+int Options::GetDAC(std::map<int, std::map<std::string, std::vector<double>>>& board_dacs,
+                    std::vector<int>& bids) {
+  board_dacs.clear();
+  std::map<std::string, std::vector<double>> defaults {
+                {"slope", std::vector<double>(16, -0.2695)},
+                {"yint", std::vector<double>(16, 17169)}};
+  // let's provide a default
+  board_dacs[-1] = defaults;
+  std::map<std::string, std::vector<double>> this_board_dac{
+    {"slope", std::vector<double>(16)},
+    {"yint", std::vector<double>(16)}};
+  int ret(0);
+  auto sort_order = bsoncxx::builder::stream::document{} <<
+    "_id" << -1 << bsoncxx::builder::stream::finalize;
+  auto opts = mongocxx::options::find{};
+  opts.sort(sort_order.view());
+  auto cursor = fDAC_collection.find({}, opts);
+  auto doc = cursor.begin();
+  if (doc == cursor.end()) {
+    fLog->Entry(MongoLog::Local, "No baseline calibrations? You must be new");
+    return -1;
   }
 /* doc should look like this:
- *{ run : 42,
- * bid : [ val, val, val, ...],
+ *{ run : 000042,
+ * bid : {
+ *              slope : [ch0, ch1, ch2, ...],
+ *              yint : [ch0, ch1, ch2, ...],
+ *         },
  *         ...
  * }
  */
-  for (int i = 0; i < num_chan; i++)
-    ret[i] = doc[std::to_string(bid)][i].get_int32().value;
+  for (auto bid : bids) {
+    if ((*doc).find(std::to_string(bid)) == (*doc).end()) {
+      board_dacs[bid] = defaults;
+      continue;
+    }
+    for (auto& kv : this_board_dac) { // (string, vector<double>)
+      kv.second.clear();
+      for(auto& val : (*doc)[std::to_string(bid)][kv.first].get_array().value)
+	kv.second.push_back(val.get_double());
+    }
+    board_dacs[bid] = this_board_dac;
+  }
   return ret;
 }
 
-uint16_t Options::GetSingleDAC(int bid, int ch, uint16_t default_value) {
-  auto doc = fDAC_cache.view();
-  if (doc.find(std::to_string(bid)) == doc.end()) {
-    fLog->Entry(MongoLog::Message, "No cached baselines for board %i, using default %04x",
-        bid, default_value);
-    return default_value;
-  }
-  return doc[std::to_string(bid)][ch].get_int32().value;
-}
-
-void Options::UpdateDAC(std::map<int, std::vector<uint16_t>>& all_dacs){
+void Options::UpdateDAC(std::map<int, std::map<std::string, std::vector<double>>>& all_dacs){
   using namespace bsoncxx::builder::stream;
-  int run_id = GetInt("number", -1);
+  std::string run_id = GetString("run_identifier", "default");
   fLog->Entry(MongoLog::Local, "Saving DAC calibration");
   auto search_doc = document{} << "run" << run_id << finalize;
   auto update_doc = document{};
-  update_doc << "$set" << open_document << "run" << run_id;
-  for (auto& bid_map : all_dacs) { // (bid, vector)
-    update_doc << std::to_string(bid_map.first) << open_array <<
-      [&](array_context<> arr){
-        for (auto& val : bid_map.second) arr << val;
-      } << close_array;
+  update_doc<< "$set" << open_document << "run" << run_id;
+  for (auto& bid_map : all_dacs) { // (bid, map<string, vector>)
+    update_doc << std::to_string(bid_map.first) << open_document;
+    for(auto& str_vec : bid_map.second){ // (string, vector)
+      update_doc << str_vec.first << open_array <<
+        [&](array_context<> arr){
+        for (auto& val : str_vec.second) arr << val;
+        } << close_array;
+    }
+    update_doc << close_document;
   }
   update_doc << close_document;
-  auto write_doc = update_doc << finalize;
+  auto write_doc = update_doc<<finalize;
   mongocxx::options::update options;
   options.upsert(true);
-  fDAC_collection.update_one(std::move(search_doc), std::move(write_doc), options);
+  fDAC_collection.update_one(search_doc.view(), write_doc.view(), options);
   return;
 }
 
+void Options::SaveBenchmarks(std::map<std::string, std::map<int, long>>& counters,
+    long bytes, std::string sid, std::map<std::string, double>& times) {
+  using namespace bsoncxx::builder::stream;
+  int level = GetInt("benchmark_level", 1);
+  if (level == 0) return;
+  int run_id = GetInt("number", -1);
+  std::map<std::string, std::map<int, long>> _counters;
+  if (level == 1) {
+    for (const auto& p : counters)
+      for (const auto& pp : p.second)
+        if (pp.first != 0)
+          _counters[p.first][int(std::log2(pp.first))] += pp.second;
+        else
+          _counters[p.first][-1] += pp.second;
+  } else if (level == 2) {
+    _counters = counters;
+  }
+
+  auto search_doc = document{} << "run" << run_id << finalize;
+  auto update_doc = document{};
+  update_doc << "$set" << open_document << "run" << run_id << close_document;
+  update_doc << "$push" << open_document << "data" << open_document;
+  update_doc << "host" << fHostname;
+  update_doc << "id" << sid;
+  update_doc << "bytes" << bytes;
+  for (auto& p : times)
+    update_doc << p.first << p.second;
+  if (level >= 1) {
+    for (auto& p : _counters) {
+      update_doc << p.first << open_document;
+      for (auto& pp : p.second)
+        update_doc << std::to_string(pp.first) << pp.second;
+      update_doc << close_document;
+    }
+  }
+
+  update_doc << close_document; // data
+  update_doc << close_document; // push
+  auto write_doc = update_doc << finalize;
+  mongocxx::options::update options;
+  options.upsert(true);
+  fClient[fDBname]["redax_benchmarks"].update_one(search_doc.view(), write_doc.view(), options);
+  return;
+}

@@ -161,22 +161,6 @@ class DAQController():
                 self.log.debug("Checking XAMS timeouts")
                 self.CheckTimeouts('xams')
 
-            # Active/unlinked. You your own detector now.
-#            if (goal_state[detector]['active'] == 'true' and linked == 'false'):
-
-                # Same logic as before but simpler cause we don't have to check for links
-#                if latest_status[detector]['status'] == STATUS.RUNNING:
-#                    self.CheckRunTurnover(detector)
-#                elif latest_status[detector]['status'] == STATUS.ARMED:
-#                    self.ControlDetector(command='start', detector=detector)
-#                elif latest_status[detector]['status'] == STATUS.IDLE:
-#                    self.ControlDetector(command='arm', detector=detector)
-#                elif latest_status[detector]['status'] == STATUS.ERROR:
-#                    self.ControlDetector(command='stop', detector=detector,
-#                            force=self.can_force_stop[detector])
-#                    self.can_force_stop[detector] = False
-#                else:
-#                    self.CheckTimeouts(detector)
 
         return
 
@@ -337,4 +321,3 @@ class DAQController():
         if run_duration > run_length:
             self.log.info('Stopping run for %s' % detector)
             self.ControlDetector(detector=detector, command='stop')
-
