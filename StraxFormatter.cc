@@ -20,6 +20,7 @@ double timespec_subtract(struct timespec& a, struct timespec& b) {
 }
 
 StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<MongoLog>& log){
+//  std::cout<<"Calling the Strax Formatter"<<std::endl;
   fActive = true;
   fChunkNameLength=6;
   fStraxHeaderSize=24;
@@ -38,6 +39,7 @@ StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<M
   std::string run_name;
   const int run_name_length = 6;
   int run_num = fOptions->GetInt("number", -1);
+  std::cout<<"Run_num"<<run_num<<std::endl;
   if (run_num == -1) run_name = "run";
   else {
     run_name = std::to_string(run_num);
@@ -52,10 +54,13 @@ StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<M
   fWarnIfChunkOlderThan = fOptions->GetInt("strax_chunk_phase_limit", 2);
 
   std::string output_path = fOptions->GetString("strax_output_path", "./");
+    
   try{
     fs::path op(output_path);
+    std::cout<<"Run name: "<<run_name<<std::endl;
     op /= run_name;
     fOutputPath = op;
+    std::cout<<"file Output path"<<fOutputPath<<::std::endl;
     fs::create_directory(op);
   }
   catch(...){
@@ -65,12 +70,21 @@ StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<M
 }
 
 StraxFormatter::~StraxFormatter(){
-  if (fMutexWaitTime.size() > 0) {
-    fLog->Entry(MongoLog::Local, "Thread %lx mutex report: min %i max %i mean %i median %i num %i",
-        fThreadId, fMutexWaitTime.front(), fMutexWaitTime.back(),
-        std::accumulate(fMutexWaitTime.begin(), fMutexWaitTime.end(), 0l)/fMutexWaitTime.size(),
-        fMutexWaitTime[fMutexWaitTime.size()/2], fMutexWaitTime.size());
-  }
+  std::stringstream ss;
+  ss << std::hex << fThreadId;
+  std::map<std::string, double> times {
+    {"data_packets_us", fProcTimeDP},
+    {"events_us", fProcTimeEv},
+    {"fragments_us", fProcTimeCh},
+    {"compression_us", fCompTime}
+  };
+  std::map<std::string, std::map<int, long>> counters {
+    {"fragments", fFragsPerEvent},
+    {"events", fEvPerDP},
+    {"data_packets", fBufferCounter},
+    {"chunks", fBytesPerChunk}
+  };
+  fOptions->SaveBenchmarks(counters, fBytesProcessed, ss.str(), times);
 }
 
 void StraxFormatter::Close(std::map<int,int>& ret){
@@ -93,6 +107,7 @@ void StraxFormatter::GenerateArtificialDeadtime(int64_t timestamp, const std::sh
   std::string fragment;
   fragment.reserve(fFullFragmentSize);
   timestamp *= digi->GetClockWidth(); // TODO nv
+  std::cout << "\nTimestamp is: " << timestamp << std::endl;
   int32_t length = fFragmentBytes>>1;
   int16_t sw = digi->SampleWidth(), channel = digi->GetADChannel(), zero = 0;
   fragment.append((char*)&timestamp, sizeof(timestamp));
@@ -158,7 +173,7 @@ int StraxFormatter::ProcessEvent(std::u32string_view buff,
   auto [words, channel_mask, fail, event_time] = dp->digi->UnpackEventHeader(buff);
 
   if(fail){ // board fail
-    //GenerateArtificialDeadtime(((dp->clock_counter<<31) + dp->header_time), dp->digi);
+    GenerateArtificialDeadtime(((dp->clock_counter<<31) + dp->header_time), dp->digi);
     dp->digi->CheckFail(true);
     fFailCounter[dp->digi->bid()]++;
     return event_header_words;
@@ -200,7 +215,7 @@ int StraxFormatter::ProcessChannel(std::u32string_view buff, int words_in_event,
   if(global_ch==-1)
     throw std::runtime_error("Failed to parse channel map. I'm gonna just kms now.");
 
-  int num_frags = std::ceil(1.*samples_in_pulse/samples_per_frag);
+  int num_frags = std::ceil(1.*samples_in_pulse/samples_per_frag); //Serena: ceil() returns the smallest possible integer value >= to the argument
   frags += num_frags;
   int32_t samples_this_frag = 0;
   int64_t time_this_frag = 0;
@@ -268,19 +283,17 @@ void StraxFormatter::AddFragmentToBuffer(std::string fragment, uint32_t ts, int 
 }
 
 void StraxFormatter::ReceiveDatapackets(std::list<std::unique_ptr<data_packet>>& in, int bytes) {
-  auto start = std::chrono::high_resolution_clock::now();
   {
     const std::lock_guard<std::mutex> lk(fBufferMutex);
-    auto end = std::chrono::high_resolution_clock::now();
     fBufferCounter[in.size()]++;
     fBuffer.splice(fBuffer.end(), in);
     fInputBufferSize += bytes;
-    fMutexWaitTime.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(end-start).count());
   }
   fCV.notify_one();
 }
 
 void StraxFormatter::Process() {
+    std::cout<<"Process in StraxFormatter"<<std::endl;
   // this func runs in its own thread
   fThreadId = std::this_thread::get_id();
   std::stringstream ss;
@@ -296,14 +309,13 @@ void StraxFormatter::Process() {
       fBuffer.pop_front();
       lk.unlock();
       ProcessDatapacket(std::move(dp));
-      if (fActive == true) WriteOutChunks();
+      WriteOutChunks();
     } else {
       lk.unlock();
     }
   }
   if (fBytesProcessed > 0)
     End();
-  if (fMutexWaitTime.size() > 0) std::sort(fMutexWaitTime.begin(), fMutexWaitTime.end());
 }
 
 // Can tune here as needed, these are defaults from the LZ4 examples
