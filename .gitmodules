@@ -1,0 +1,3 @@
+[submodule "dispatcher/dispatcher/daqnt"]
+	path = dispatcher/dispatcher/daqnt
+	url = https://github.com/XAMS-nikhef/redax/
