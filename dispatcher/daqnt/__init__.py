@@ -4,4 +4,4 @@ from .signal_handler import *
 from .database import *
 from .hypervisor import *
 from .daq_status import *
-from .slackbot import DaqntBot
+# from .slackbot import DaqntBot
