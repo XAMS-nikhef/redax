@@ -137,23 +137,21 @@ class MongoConnect():
     def __del__(self):
         self.quit()
 
-    def get_update(self, dc):
+    def get_update(self):
         """
         Gets the latest documents from the database for
         each node we know about
         """
         try:
-            for detector in dc.keys():
-                for host in dc[detector]['readers'].keys():
+            for detector in self.latest_status.keys():
+                for host in self.latest_status[detector]['readers'].keys():
                     doc = self.collections['node_status'].find_one({'host': host},
                                                                    sort=[('_id', -1)])
-                    dc[detector]['readers'][host] = doc
+                    self.latest_status[detector]['readers'][host] = doc
 
         except Exception as e:
             self.log.error(f'Got error while getting update: {type(e)}: {e}')
             return None
-
-        self.latest_status = dc
 
         # Now compute aggregate status
         return self.latest_status if self.aggregate_status() is None else None
@@ -324,74 +322,6 @@ class MongoConnect():
             self.log.debug(f'get_wanted_state failed due to {type(e)} {e}')
             return None
 
-    def is_linked(self, a, b):
-        """
-        Check if the detectors are in a compatible linked configuration.
-        """
-        mode_a = self.goal_state[a]["mode"]
-        mode_b = self.goal_state[b]["mode"]
-        doc_a = self.collections['options'].find_one({'name': mode_a})
-        doc_b = self.collections['options'].find_one({'name': mode_b})
-        detectors_a = doc_a['detector']
-        detectors_b = doc_b['detector']
-
-        # Check if the linked detectors share the same run mode and
-        # if they are both present in the detectors list of that mode
-        return mode_a == mode_b and a in detectors_b and b in detectors_a
-
-    def get_super_detector(self):
-        """
-        Get the Super Detector configuration
-        if the detectors are in a compatible linked mode.
-        - case A: tpc, mv and nv all linked
-        - case B: tpc, mv and nv all un-linked
-        - case C: tpc and mv linked, nv un-linked
-        - case D: tpc and nv linked, mv un-linked
-        - case E: tpc unlinked, mv and nv linked
-        We will check the compatibility of the linked mode for a pair of detectors per time.
-        """
-        ret = {'tpc': {'controller': self.dc['tpc']['controller'][:],
-                       'readers': self.dc['tpc']['readers'][:],
-                       'detectors': ['tpc']}}
-        mv = self.dc['muon_veto']
-        nv = self.dc['neutron_veto']
-
-        tpc_mv = self.is_linked('tpc', 'muon_veto')
-        tpc_nv = self.is_linked('tpc', 'neutron_veto')
-        mv_nv = self.is_linked('muon_veto', 'neutron_veto')
-
-        # tpc and muon_veto linked mode
-        if tpc_mv:
-            # case A or C
-            ret['tpc']['controller'] += mv['controller']
-            ret['tpc']['readers'] += mv['readers']
-            ret['tpc']['detectors'] += ['muon_veto']
-        else:
-            # case B or E
-            ret['muon_veto'] = {'controller': mv['controller'][:],
-                                'readers': mv['readers'][:],
-                                'detectors': ['muon_veto']}
-        if tpc_nv:
-            # case A or D
-            ret['tpc']['controller'] += nv['controller'][:]
-            ret['tpc']['readers'] += nv['readers'][:]
-            ret['tpc']['detectors'] += ['neutron_veto']
-        elif mv_nv and not tpc_mv:
-            # case E
-            ret['muon_veto']['controller'] += nv['controller'][:]
-            ret['muon_veto']['readers'] += nv['readers'][:]
-            ret['muon_veto']['detectors'] += ['neutron_veto']
-        else:
-            # case B or C
-            ret['neutron_veto'] = {'controller': nv['controller'][:],
-                                   'readers': nv['readers'][:],
-                                   'detectors': ['neutron_veto']}
-
-        # convert the host lists to dics for later
-        for det in list(ret.keys()):
-            ret[det]['controller'] = {c:{} for c in ret[det]['controller']}
-            ret[det]['readers'] = {c:{} for c in ret[det]['readers']}
-        return ret
 
     def get_run_mode(self, mode):
         """
