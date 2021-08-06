@@ -82,9 +82,6 @@ class MongoConnect():
         # how long to give the CC to start the run
         self.cc_start_wait = int(config['StartCmdDelay']) + 1
 
-        # Which control keys do we look for?
-        self.control_keys = config['ControlKeys'].split()
-
         # a place to buffer commands temporarily
         self.command_queue = []
         self.q_mutex = threading.Lock()
@@ -122,10 +119,6 @@ class MongoConnect():
                 self.latest_status[detector]['readers'][reader] = {}
                 self.host_config[reader] = detector
                 self.hv_timeout_fix[reader] = now()
-            for controller in self.dc[detector]['controller']:
-                self.latest_status[detector]['controller'][controller] = {}
-                self.host_config[controller] = detector
-                self.hv_timeout_fix[controller] = now()
 
         self.log = log
         self.run = True
@@ -155,10 +148,7 @@ class MongoConnect():
                     doc = self.collections['node_status'].find_one({'host': host},
                                                                    sort=[('_id', -1)])
                     dc[detector]['readers'][host] = doc
-                for host in dc[detector]['controller'].keys():
-                    doc = self.collections['node_status'].find_one({'host': host},
-                                                                    sort=[('_id', -1)])
-                    dc[detector]['controller'][host] = doc
+
         except Exception as e:
             self.log.error(f'Got error while getting update: {type(e)}: {e}')
             return None
@@ -316,6 +306,7 @@ class MongoConnect():
             ret = ret or True
         return ret
 
+    
     def get_wanted_state(self):
         """
         Figure out what the system is supposed to be doing right now
@@ -325,18 +316,10 @@ class MongoConnect():
             for detector in self.dc:
                 latest = None
                 latest_settings[detector] = {}
-                for key in self.control_keys:
-                    doc = self.collections['incoming_commands'].find_one(
-                            {'key': f'{detector}.{key}'}, sort=[('_id', -1)])
-                    if doc is None:
-                        self.log.error(f'No key {key} for {detector}???')
-                        return None
-                    latest_settings[detector][doc['field']] = doc['value']
-                    if latest is None or doc['time'] > latest:
-                        latest = doc['time']
-                        latest_settings[detector]['user'] = doc['user']
-            self.goal_state = latest_settings
-            return self.goal_state
+                for doc in self.collections['incoming_commands'].find():
+                    latest_settings[doc['detector']]=doc
+                self.goal_state = latest_settings
+                return self.goal_state
         except Exception as e:
             self.log.debug(f'get_wanted_state failed due to {type(e)} {e}')
             return None
