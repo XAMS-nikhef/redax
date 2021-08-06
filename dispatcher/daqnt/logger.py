@@ -35,7 +35,7 @@ class DAQLogHandler(logging.Handler):
     def __init__(self,
                  process_name: str,
                  mc=None,
-                 logdir='/daq_common/logs/'):
+                 logdir='/home/xams/daq/daq_common/logs/'):
         logging.Handler.__init__(self)
         self.process_name = process_name
         now = datetime.datetime.utcnow()
