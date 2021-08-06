@@ -10,5 +10,6 @@ def get_client(which='daq'):
     :returns: pymongo.MongoClient
     """
     pw = quote_plus(os.environ[f'MONGO_PASSWORD'])
+    user = quote_plus(os.environ[f'MONGO_USER'])
     port = 27017
-    return MongoClient(f'mongodb://daq:{pw}@127.0.0.1:{port}/admin')
+    return MongoClient(f'mongodb://{user}:{pw}@127.0.0.1:{port}/admin')
