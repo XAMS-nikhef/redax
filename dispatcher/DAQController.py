@@ -21,10 +21,9 @@ def now():
 
 class DAQController():
 
-    def __init__(self, config, daq_config, mongo_connector, log, hypervisor):
+    def __init__(self, config, daq_config, mongo_connector, log):
 
         self.mongo = mongo_connector
-        self.hypervisor = hypervisor
         self.goal_state = {}
         self.latest_status = {}
 
