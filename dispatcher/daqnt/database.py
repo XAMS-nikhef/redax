@@ -10,6 +10,5 @@ def get_client(which='daq'):
     :returns: pymongo.MongoClient
     """
     pw = quote_plus(os.environ[f'MONGO_PASSWORD'])
-    port = 27020 if which == 'daq' else 27017
-    return MongoClient(f'mongodb://daq:{pw}@gw:{port}/admin')
-
+    port = 27017
+    return MongoClient(f'mongodb://daq:{pw}@127.0.0.1:{port}/admin')
