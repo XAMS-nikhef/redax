@@ -41,14 +41,14 @@ def main():
     logger.info('Dispatcher starting up')
 
     while sh.event.is_set() == False:
+        
         sh.event.wait(sleep_period)
         # Get most recent goal state from database. Users will update this from the website.
         if (goal_state := MongoConnector.get_wanted_state()) is None:
             continue
-        # Get the Super-Detector configuration
-        current_config = MongoConnector.get_super_detector()
+            
         # Get most recent check-in from all connected hosts
-        if (latest_status := MongoConnector.get_update(current_config)) is None:
+        if (latest_status := MongoConnector.get_update()) is None:
             continue
 
         # Print an update
@@ -59,10 +59,6 @@ def main():
             if latest_status[detector]['number'] != -1:
                 msg += f' ({latest_status[detector]["number"]})'
             logger.debug(msg)
-        msg = (f"Linking: tpc-mv: {MongoConnector.is_linked('tpc', 'muon_veto')}, "
-               f"tpc-nv: {MongoConnector.is_linked('tpc', 'neutron_veto')}, "
-               f"mv-nv: {MongoConnector.is_linked('muon_veto', 'neutron_veto')}")
-        logger.debug(msg)
 
         # Decision time. Are we actually in our goal state? If not what should we do?
         DAQControl.solve_problem(latest_status, goal_state)
