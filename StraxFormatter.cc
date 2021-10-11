@@ -52,6 +52,7 @@ StraxFormatter::StraxFormatter(std::shared_ptr<Options>& opts, std::shared_ptr<M
 
   fBufferNumChunks = fOptions->GetInt("strax_buffer_num_chunks", 2);
   fWarnIfChunkOlderThan = fOptions->GetInt("strax_chunk_phase_limit", 2);
+  fMutexWaitTime.reserve(1<<20);
 
   std::string output_path = fOptions->GetString("strax_output_path", "./");
     
@@ -148,6 +149,12 @@ void StraxFormatter::ProcessDatapacket(std::unique_ptr<data_packet> dp){
         fLog->Entry(MongoLog::Warning, "Missed an event from %i at idx %x/%x (%x)",
             dp->digi->bid(), std::distance(dp->buff.begin(), it), dp->buff.size(), *it);
         missed = false;
+        // this happens quite rarely, the chance of overwriting ourselves is vanishing
+        // but it's nice to be able to know why we missed an event
+        std::string filename = std::to_string(fOptions->GetInt("number", -1)) + "_missed";
+        std::ofstream fout(filename, std::ios::out | std::ios::binary);
+        fout.write((char*)dp->buff.data(), dp->buff.size()*sizeof(dp->buff[0]));
+        fout.close();
       }
       it++;
     }
@@ -282,14 +289,20 @@ void StraxFormatter::AddFragmentToBuffer(std::string fragment, uint32_t ts, int 
   }
 }
 
-void StraxFormatter::ReceiveDatapackets(std::list<std::unique_ptr<data_packet>>& in, int bytes) {
-  {
-    const std::lock_guard<std::mutex> lk(fBufferMutex);
+int StraxFormatter::ReceiveDatapackets(std::list<std::unique_ptr<data_packet>>& in, int bytes) {
+  using namespace std::chrono;
+  auto start = high_resolution_clock::now();
+  if (fBufferMutex.try_lock()) {
+    auto end = high_resolution_clock::now();
     fBufferCounter[in.size()]++;
     fBuffer.splice(fBuffer.end(), in);
     fInputBufferSize += bytes;
+    fMutexWaitTime.push_back(duration_cast<nanoseconds>(end-start).count());
+    fBufferMutex.unlock();
+    fCV.notify_one();
+    return 0;
   }
-  fCV.notify_one();
+  return 1;
 }
 
 void StraxFormatter::Process() {
@@ -331,11 +344,11 @@ void StraxFormatter::WriteOutChunk(int chunk_i){
   struct timespec comp_start, comp_end;
   clock_gettime(CLOCK_THREAD_CPUTIME_ID, &comp_start);
 
-  std::vector<std::list<std::string>*> buffers{{&fChunks[chunk_i], &fOverlaps[chunk_i]}};
-  std::vector<long> uncompressed_size(3, 0);
+  std::list<std::string>* buffers[2] = {&fChunks[chunk_i], &fOverlaps[chunk_i]};
+  long uncompressed_size[3] = {0L, 0L, 0L};
   std::string uncompressed;
-  std::vector<std::shared_ptr<std::string>> out_buffer(3);
-  std::vector<int> wsize(3);
+  std::shared_ptr<std::string> out_buffer[3];
+  int wsize[3];
   long max_compressed_size = 0;
 
   for (int i = 0; i < 2; i++) {

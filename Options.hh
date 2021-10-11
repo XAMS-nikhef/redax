@@ -38,13 +38,13 @@ struct HEVOptions{
     int signal_threshold;
     int sign;
     int rise_time_cut;
-    int inner_ring_factor;
-    int outer_ring_factor;
+    int static_veto_duration;
+    int dynamic_veto_limit;
     int integration_threshold;
-    int parameter_0;
-    int parameter_1;
-    int parameter_2;
-    int parameter_3;
+    int rho_0;
+    int rho_1;
+    int rho_2;
+    int rho_3;
     int window;
     int prescaling;
     int component_status;
@@ -78,7 +78,9 @@ public:
 
   std::vector<BoardType> GetBoards(std::string);
   std::vector<RegisterType> GetRegisters(int, bool=false);
-  int GetDAC(std::map<int, std::map<std::string, std::vector<double>>>&, std::vector<int>&);
+  std::vector<uint16_t> GetDAC(int, int, uint16_t);
+  std::vector<int> GetBLTalloc();
+  int GetV1495Opts(std::map<std::string, int>&);
   int GetCrateOpt(CrateOptions &ret);
   int GetHEVOpt(HEVOptions &ret);
   int16_t GetChannel(int, int);

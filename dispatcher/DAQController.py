@@ -9,6 +9,7 @@ DAQ Controller Brain Class
 D. Coderre, 12. Mar. 2019
 D. Masson, 06 Apr 2020
 S. di Pede, 17 Mar 2021
+
 Brief: This code handles the logic of what the dispatcher does when. It takes in 
 aggregated status updates and commands from the mongo connector and decides if
 any action needs to be taken to get the DAQ into the target state. It also handles the
@@ -21,7 +22,7 @@ def now():
 
 class DAQController():
 
-    def __init__(self, config, daq_config, mongo_connector, log):
+    def __init__(self, config, daq_config, mongo_connector, log, hypervisor):
 
         self.mongo = mongo_connector
         self.goal_state = {}
@@ -71,6 +72,7 @@ class DAQController():
                 at all. Or it could be because we are trying to, for example, start a calibration
                 run in the neutron veto but it is already running a combined run and
                 therefore unavailable. The frontend should prevent many of these cases though.
+
         The way that works is this:
         A) the detector should be INACTIVE (i.e., IDLE), we stop the detector 
             if the status is in one of the active states

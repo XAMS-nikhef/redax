@@ -51,7 +51,6 @@ class V1724{
   virtual bool EnsureStopped(int ntries, int sleep);
   virtual int CheckErrors();
   virtual uint32_t GetAcquisitionStatus();
-  virtual int ResetClocks();
 
 protected:
   // Some values for base classes to override 
@@ -71,8 +70,8 @@ protected:
   unsigned int fVMEAlignmentRegister;
   unsigned int fBoardErrRegister;
 
-  int BLT_SIZE;
-  std::map<int, long> fBLTCounter;
+  std::vector<int> fBLTalloc;
+  std::map<int, int> fBLTCounter;
 
   virtual int Init(int, int, std::shared_ptr<Options>&);
   bool MonitorRegister(uint32_t reg, uint32_t mask, int ntries, int sleep, uint32_t val=1);
@@ -91,9 +90,10 @@ protected:
   std::shared_ptr<MongoLog> fLog;
   std::atomic_bool fError;
 
-  float fBLTSafety, fBufferSafety;
+  float fBLTSafety;
   int fSampleWidth, fClockCycle;
   int16_t fArtificialDeadtimeChannel;
+  std::chrono::nanoseconds fTotReadTime;
 };
 
 

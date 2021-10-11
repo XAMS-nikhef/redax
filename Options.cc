@@ -265,6 +265,36 @@ std::vector<u_int16_t> Options::GetThresholds(int board) {
   }
 }
 
+std::vector<int> Options::GetBLTalloc() {
+  int default_value = 23;
+  std::vector<int> ret;
+  try{
+    for (auto& val : bson_options["blt_alloc"].get_array().value)
+      ret.push_back(val.get_int32().value);
+  } catch(std::exception& e) {
+    fLog->Entry(MongoLog::Local, "Using default BLT allocs");
+    ret.push_back(default_value);
+  }
+  return ret;
+}
+
+int Options::GetV1495Opts(std::map<std::string, int>& ret) {
+  if (bson_options.find("V1495") == bson_options.end())
+    return 1;
+  auto subdoc = bson_options["V1495"].get_document().value;
+  if (subdoc.find(fDetector) == subdoc.end())
+    return 1;
+  try {
+    for (auto& value : subdoc[fDetector].get_document().value)
+      ret[std::string(value.key())] = value.get_int32().value;  // TODO std::any
+    return 0;
+  } catch (std::exception& e) {
+    fLog->Entry(MongoLog::Local, "Exception getting V1495 opts: %s", e.what());
+    return -1;
+  }
+  return 1;
+}
+
 int Options::GetCrateOpt(CrateOptions &ret){
   if ((ret.pulser_freq = GetNestedInt("V2718."+fDetector+".pulser_freq", -1)) == -1) {
     try{
@@ -296,19 +326,18 @@ int Options::GetHEVOpt(HEVOptions &ret){
     ret.signal_threshold = bson_options["DDC10"]["signal_threshold"].get_int32().value;
     ret.sign = bson_options["DDC10"]["sign"].get_int32().value;
     ret.rise_time_cut = bson_options["DDC10"]["rise_time_cut"].get_int32().value;
-    ret.inner_ring_factor = bson_options["DDC10"]["inner_ring_factor"].get_int32().value;
-    ret.outer_ring_factor = bson_options["DDC10"]["outer_ring_factor"].get_int32().value;
+    ret.dynamic_veto_limit = bson_options["DDC10"]["dynamic_veto_limit"].get_int32().value;
+    ret.static_veto_duration = bson_options["DDC10"]["static_veto_duration"].get_int32().value;
     ret.integration_threshold = bson_options["DDC10"]["integration_threshold"].get_int32().value;
-    ret.parameter_0 = bson_options["DDC10"]["parameter_0"].get_int32().value;
-    ret.parameter_1 = bson_options["DDC10"]["parameter_1"].get_int32().value;
-    ret.parameter_2 = bson_options["DDC10"]["parameter_2"].get_int32().value;
-    ret.parameter_3 = bson_options["DDC10"]["parameter_3"].get_int32().value;
+    ret.rho_0 = bson_options["DDC10"]["rho_0"].get_int32().value;
+    ret.rho_1 = bson_options["DDC10"]["rho_1"].get_int32().value;
+    ret.rho_2 = bson_options["DDC10"]["rho_2"].get_int32().value;
+    ret.rho_3 = bson_options["DDC10"]["rho_3"].get_int32().value;
     ret.window = bson_options["DDC10"]["window"].get_int32().value;
     ret.prescaling = bson_options["DDC10"]["prescaling"].get_int32().value;
     ret.component_status = bson_options["DDC10"]["component_status"].get_int32().value;
     ret.width_cut = bson_options["DDC10"]["width_cut"].get_int32().value;
     ret.delay = bson_options["DDC10"]["delay"].get_int32().value;
-
     ret.address = bson_options["DDC10"]["address"].get_utf8().value.to_string();
     ret.required = bson_options["DDC10"]["required"].get_utf8().value.to_string();
   }catch(std::exception &E){

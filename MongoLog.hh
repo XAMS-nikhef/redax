@@ -14,6 +14,10 @@
 #include <atomic>
 #include <thread>
 #include <experimental/filesystem>
+#include <memory>
+#include <tuple>
+#include <condition_variable>
+#include <list>
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/collection.hpp>
@@ -67,7 +71,8 @@ public:
   const static int Fatal   = 4;  // Program gonna die
   const static int Local   = -1; // Write to local (file) log only
 
-  int Entry(int priority,std::string message, ...);
+  virtual int Initialize() {return RotateLogFile();}
+  virtual int Entry(int priority, const std::string&, ...);
   void SetRunId(const int runid) {fRunId = runid;}
 
 private:
@@ -75,7 +80,17 @@ private:
   std::string FormatTime(struct tm* date);
   int Today(struct tm* date);
   int RotateLogFile();
-  std::string LogFileName(struct tm* date);
+  virtual std::string FormatTime(struct tm*, int, char* = nullptr);
+  virtual int Today(struct tm*);
+  virtual std::string LogFileName(struct tm*);
+  virtual std::experimental::filesystem::path OutputDirectory(struct tm*);
+  virtual std::experimental::filesystem::path LogFilePath(struct tm*);
+  void MakeEntry(int priority, const std::string& message);
+
+  std::shared_ptr<mongocxx::pool> fPool;
+  mongocxx::pool::entry fClient;
+  mongocxx::database fDB;
+  mongocxx::collection fCollection;
   std::vector<std::string> fPriorities{"LOCAL", "DEBUG", "MESSAGE",
       "WARNING", "ERROR", "FATAL"};
   std::ofstream fOutfile;
@@ -86,6 +101,8 @@ private:
   int fDeleteAfterDays;
   int fToday;
   std::mutex fMutex;
+  std::list<std::tuple<int, int, std::string>> fQueue;
+  std::condition_variable fCV;
   std::experimental::filesystem::path fOutputDir;
   std::thread fFlushThread;
   std::atomic_bool fFlush;

@@ -109,7 +109,6 @@ int DAQController::Arm(std::shared_ptr<Options>& options){
 	digi->AcquisitionStop();
     }
   }
-  fCounter = 0;
   if (OpenThreads()) {
     fLog->Entry(MongoLog::Warning, "Error opening threads");
     fStatus = DAXHelpers::Idle;
@@ -160,7 +159,7 @@ int DAQController::Stop(){
     if (one_still_running) std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }while(one_still_running && counter++ < 10);
   if (counter >= 10) fLog->Entry(MongoLog::Local, "Boards taking a while to clear");
-  std::cout<<"Deactivating boards"<<std::endl;
+  fLog->Entry(MongoLog::Local, "Stopping boards");
   for( auto const& link : fDigitizers ){
     for(auto digi : link.second){
       digi->AcquisitionStop(true);
@@ -186,8 +185,10 @@ int DAQController::Stop(){
   fDigitizers.clear();
   fStatus = DAXHelpers::Idle;
 
+  fPLL = 0;
   fLog->SetRunId(-1);
-  std::cout<<"Finished end"<<std::endl;
+  fOptions.reset();
+  fLog->Entry(MongoLog::Local, "Finished end sequence");
   fStatus = DAXHelpers::Idle;
   return 0;
 }
@@ -212,16 +213,20 @@ void DAQController::ReadData(int link){
   int err_val = 0;
   std::list<std::unique_ptr<data_packet>> local_buffer;
   std::unique_ptr<data_packet> dp;
+  std::vector<int> mutex_wait_times;
+  mutex_wait_times.reserve(1<<20);
   int words = 0;
-  int local_size(0);
+  unsigned transfer_batch = fOptions->GetInt("transfer_batch", 8);
+  int bytes_this_loop(0);
   fRunning[link] = true;
   std::chrono::microseconds sleep_time(fOptions->GetInt("us_between_reads", 10));
+  int c = 0;
+  const int num_threads = fNProcessingThreads;
   while(fReadLoop){
     for(auto& digi : fDigitizers[link]) {
 
-      // Every 1k reads check board status
-      if(readcycler%10000==0){
-        readcycler=0;
+      // periodically report board status
+      if(readcycler == 0){
         board_status = digi->GetAcquisitionStatus();
         //channel_0_status = digi->ReadRegister(0x1088);
         //channel_1_status = digi->ReadRegister(0x1188);
@@ -250,10 +255,11 @@ void DAQController::ReadData(int link){
 
         } else {
           fStatus = DAXHelpers::Error; // stop command will be issued soon
-          if (err_val & 0x1) fLog->Entry(MongoLog::Local, "Board %i has PLL unlock",
-                                         digi->bid());
-          if (err_val & 0x2) fLog->Entry(MongoLog::Local, "Board %i has VME bus error",
-                                         digi->bid());
+          if (err_val & 0x1) {
+            fLog->Entry(MongoLog::Local, "Board %i has PLL unlock", digi->bid());
+            fPLL++;
+          }
+          if (err_val & 0x2) fLog->Entry(MongoLog::Local, "Board %i has VME bus error", digi->bid());
         }
       }
       if((words = digi->Read(dp))<0){
@@ -263,16 +269,19 @@ void DAQController::ReadData(int link){
       } else if(words>0){
         dp->digi = digi;
         local_buffer.emplace_back(std::move(dp));
-        local_size += words*sizeof(char32_t);
+        bytes_this_loop += words*sizeof(char32_t);
       }
     } // for digi in digitizers
-    if (local_buffer.size() > 0) {
-      fDataRate += local_size;
-      int selector = (fCounter++)%fNProcessingThreads;
-      fFormatters[selector]->ReceiveDatapackets(local_buffer, local_size);
-      local_size = 0;
+    if (local_buffer.size() && (readcycler % transfer_batch == 0)) {
+      fDataRate += bytes_this_loop;
+      auto t_start = std::chrono::high_resolution_clock::now();
+      while (fFormatters[(++c)%num_threads]->ReceiveDatapackets(local_buffer, bytes_this_loop)) {}
+      auto t_end = std::chrono::high_resolution_clock::now();
+      mutex_wait_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            t_end-t_start).count());
+      bytes_this_loop = 0;
     }
-    readcycler++;
+    if (++readcycler > 10000) readcycler = 0;
     std::this_thread::sleep_for(sleep_time);
   } // while run
   fRunning[link] = false;
@@ -340,9 +349,13 @@ void DAQController::StatusUpdate(mongocxx::collection* collection) {
       buf.second += x.second;
     }
   }
-  insert_doc << "host" << fHostname <<
+  int rate_alt = std::accumulate(retmap.begin(), retmap.end(), 0,
+      [&](int tot, const std::pair<int, int>& p) {return std::move(tot) + p.second;});
+  auto doc = document{} <<
+    "host" << fHostname <<
     "time" << bsoncxx::types::b_date(std::chrono::system_clock::now())<<
-    "rate" << rate/1e6 <<
+    "rate_old" << rate*1e-6 <<
+    "rate" << rate_alt*1e-6 <<
     "status" << fStatus <<
     "buffer_size" << (buf.first + buf.second)/1e6 <<
     "run_mode" << (fOptions ? fOptions->GetString("name", "none") : "none") <<
@@ -350,8 +363,9 @@ void DAQController::StatusUpdate(mongocxx::collection* collection) {
       [&](bsoncxx::builder::stream::key_context<> doc){
       for( auto const& pair : retmap)
         doc << std::to_string(pair.first) << short(pair.second>>10); // KB not MB
-      } << bsoncxx::builder::stream::close_document;
-  collection->insert_one(insert_doc << bsoncxx::builder::stream::finalize);
+      } << close_document << 
+    finalize;
+  collection->insert_one(std::move(doc));
   return;
 }
 
@@ -364,6 +378,8 @@ void DAQController::InitLink(std::vector<std::shared_ptr<V1724>>& digis,
     if ((ret = FitBaselines(digis, dac_values, nominal_baseline, cal_values))) {
       fLog->Entry(MongoLog::Warning, "Errors during baseline fitting");
       return;
+    } else if (ret > 0) {
+      fLog->Entry(MongoLog::Debug, "Baselines didn't converge so we'll use Plan B");
     }
   } 
 
@@ -596,18 +612,19 @@ int DAQController::FitBaselines(std::vector<std::shared_ptr<V1724>> &digis,
                 hist[val0 >> rebin_factor]++;
                 hist[val1 >> rebin_factor]++;
               }
-              sv.remove_prefix(words);
-              auto max_it = std::max_element(hist.begin(), hist.end());
-              auto max_start = std::max(max_it - bins_around_max, hist.begin());
-              auto max_end = std::min(max_it + bins_around_max+1, hist.end());
-              counts_total = std::accumulate(hist.begin(), hist.end(), 0);
-              counts_around_max = std::accumulate(max_start, max_end, 0);
-              if (counts_around_max < fraction_around_max*counts_total) {
-                fLog->Entry(MongoLog::Local,
-                    "Bd %i ch %i: %i out of %i counts around max %i",
-                    bid, ch, counts_around_max, counts_total,
-                    std::distance(hist.begin(), max_it)<<rebin_factor);
-                redo_iter = true;
+              cal_values[bid]["slope"][ch] = slope = (C*D - E*F)/(B*C - F*F);
+              cal_values[bid]["yint"][ch] = yint = (B*E - D*F)/(B*C - F*F);
+              dac_values[bid][ch] = (target_baseline-yint)/slope;
+              done &= false;
+            } else {
+              // iterate
+              if (channel_finished[bid][ch] >= convergence_threshold) {
+                done &= true;
+                if (channel_finished[bid][ch]++ == convergence_threshold) {
+                  fLog->Entry(MongoLog::Local, "%i.%i converged after %i steps: %.1f", bid, ch,
+                      step, bl_per_channel[bid][ch][step]);
+                }
+                continue;
               }
               if (counts_total < 1.5*words) {//25% zeros
                 redo_iter = true;
