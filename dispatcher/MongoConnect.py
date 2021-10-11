@@ -125,10 +125,7 @@ class MongoConnect(object):
                 self.latest_status[detector]['readers'][reader] = {}
                 self.host_config[reader] = detector
                 self.hv_timeout_fix[reader] = now()
-            for controller in self.dc[detector]['controller']:
-                self.latest_status[detector]['controller'][controller] = {}
-                self.host_config[controller] = detector
-                self.hv_timeout_fix[controller] = now()
+
 
         self.logger = logger
         self.run = True
