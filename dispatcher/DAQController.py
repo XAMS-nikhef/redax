@@ -21,7 +21,7 @@ class DAQController():
     resetting of runs (the ~hourly stop/start) during normal operations.
     """
 
-    def __init__(self, config, daq_config, mongo_connector, logger, hypervisor):
+    def __init__(self, config, daq_config, mongo_connector, logger):#, hypervisor):
 
         self.mongo = mongo_connector
         self.goal_state = {}
@@ -46,7 +46,7 @@ class DAQController():
                 for k in ['Arm','Start','Stop']}
         self.stop_retries = int(config['RetryReset'])
 
-        self.hv_nuclear_timeout = int(config['HypervisorNuclearTimeout'])
+        # self.hv_nuclear_timeout = int(config['HypervisorNuclearTimeout'])
         self.last_nuke = now()
 
         self.logger = logger
@@ -273,8 +273,8 @@ class DAQController():
             if (dt := (now()-self.last_nuke).total_seconds()) > self.hv_nuclear_timeout:
                 self.logger.critical('There\'s only one way to be sure')
                 self.control_detector(detector='tpc', command='stop', force=True)
-                if self.hypervisor.tactical_nuclear_option(self.mongo.is_linked_mode()):
-                    self.last_nuke = now()
+                # if self.hypervisor.tactical_nuclear_option(self.mongo.is_linked_mode()):
+                #     self.last_nuke = now()
             else:
                 #self.control_detector(detector=detector, command='stop')
                 self.logger.debug(f'Nuclear timeout at {int(dt)}/{self.hv_nuclear_timeout}')
@@ -309,8 +309,8 @@ class DAQController():
                         if (dt := (now()-self.last_nuke).total_seconds()) > self.hv_nuclear_timeout:
                             self.control_detector(detector='tpc', command='stop', force=True)
                             self.logger.critical('There\'s only one way to be sure')
-                            if self.hypervisor.tactical_nuclear_option(self.mongo.is_linked_mode()):
-                                self.last_nuke = now()
+                            # if self.hypervisor.tactical_nuclear_option(self.mongo.is_linked_mode()):
+                            #     self.last_nuke = now()
                         else:
                             self.control_detector(detector=detector, command='stop')
                             self.logger.debug(f'Nuclear timeout at {int(dt)}/{self.hv_nuclear_timeout}')
