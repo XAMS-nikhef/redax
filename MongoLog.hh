@@ -57,7 +57,7 @@ class MongoLog{
   */
 
 public:
-  MongoLog(int DeleteAfterDays, std::string log_dir, std::string, std::string, std::string, std::string);
+  MongoLog(int DeleteAfterDays, std::string, std::string, std::string);
   ~MongoLog();
   
   int  Initialize(std::string connection_string,
@@ -81,14 +81,14 @@ private:
   int Today(struct tm* date);
   int RotateLogFile();
   virtual std::string FormatTime(struct tm*, int, char* = nullptr);
-  virtual int Today(struct tm*);
+  // virtual int Today(struct tm*);
   virtual std::string LogFileName(struct tm*);
   virtual std::experimental::filesystem::path OutputDirectory(struct tm*);
   virtual std::experimental::filesystem::path LogFilePath(struct tm*);
   void MakeEntry(int priority, const std::string& message);
 
-  std::shared_ptr<mongocxx::pool> fPool;
-  mongocxx::pool::entry fClient;
+  // std::shared_ptr<mongocxx::pool> fPool;
+  // mongocxx::pool::entry fClient;
   mongocxx::database fDB;
   mongocxx::collection fCollection;
   std::vector<std::string> fPriorities{"LOCAL", "DEBUG", "MESSAGE",
@@ -113,8 +113,10 @@ private:
 class MongoLog_nT : public MongoLog {
 public:
   // subclass to support the managed logging
-  MongoLog_nT(std::shared_ptr<mongocxx::pool>& pool, std::string dbname, std::string host) :
-    MongoLog(0, pool, dbname, "/daq_common2/logs", host) {}
+  // MongoLog_nT(std::shared_ptr<mongocxx::pool>& pool, std::string dbname, std::string host) :
+  //   MongoLog(0, pool, dbname, "/daq_common/logs_redax", host) {}
+ MongoLog_nT(std::string dbname, std::string host) :
+    MongoLog(0, dbname, "/daq_common_redax/logs", host) {}
   virtual ~MongoLog_nT() {}
 
 protected:
