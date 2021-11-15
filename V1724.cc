@@ -193,6 +193,7 @@ int V1724::WriteRegister(unsigned int reg, unsigned int value){
 		fBID, ret, reg, value);
     return -1;
   }
+  fLog->Entry(MongoLog::Local, "Wrote 0x%04x to 0x%04x", value, reg);
   return 0;
 }
 
@@ -278,6 +279,7 @@ int V1724::Read(std::unique_ptr<data_packet>& outptr){
 int V1724::LoadDAC(std::vector<uint16_t> &dac_values){
   // Loads DAC values into registers
   for(unsigned int x=0; x<fNChannels; x++){
+    fLog->Entry(MongoLog::Local, "Channel %i will have dc offset of %i", x, dac_values[x]);
     if(WriteRegister((fChDACRegister)+(0x100*x), dac_values[x])!=0){
       fLog->Entry(MongoLog::Error, "Board %i failed writing DAC 0x%04x in channel %i",
 		  fBID, dac_values[x], x);
