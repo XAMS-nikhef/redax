@@ -10,6 +10,8 @@ def main(coll):
     parser.add_argument('--number', type=int, default=1, help='Run number')
     parser.add_argument('--mode', help='Run mode', required=True)
     parser.add_argument('--host', nargs='+', default=[os.uname()[1]], help="Hosts to issue to")
+    parser.add_argument('--active', choices='true false'.split(), help='Run mode', required=True)
+
 
     args = parser.parse_args()
     if not isinstance(args.host, (list, tuple)):
@@ -29,7 +31,8 @@ def main(coll):
     return
 
 if __name__ == '__main__':
-    with MongoClient("mongodb://daq:%s@gw:27020/admin" % os.environ['MONGO_PASSWORD_DAQ']) as client:
+
+    with MongoClient("mongodb://user:%s@127.0.0.1:27017/admin" % os.environ['MONGO_PASSWORD']) as client:
         try:
             main(client['daq']['control'])
         except Exception as e:

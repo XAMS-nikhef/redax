@@ -1,10 +1,10 @@
 from pymongo import MongoClient
 import os
 
-username='daq'
-password=os.environ['MONGO_DAQ_PASSWORD']
-host='gw'
-port=27020
+username=os.environ['MONGO_USER']
+password=os.environ['MONGO_PASSWORD']
+host='127.0.0.1'
+port=27017
 auth_database='admin'
 database='daq'
 
@@ -106,8 +106,8 @@ db.control.create_index('createdAt', expireAfterSeconds=7*24*3600)
 db.control.create_index([('host', 1), ('_id', 1)])
 
 # detector control
-db.create_collection('detector_control')
-db.detector_control.create_index('key')
+db.create_collection('detector_control_new')
+db.detector_control_new.create_index('key')
 
 # log
 db.create_collection('log')
