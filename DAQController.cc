@@ -112,8 +112,10 @@ int DAQController::Arm(std::shared_ptr<Options>& options){
     fStatus = DAXHelpers::Idle;
     return -1;
   }
+
   sleep(1);
   fStatus = DAXHelpers::Armed;
+    fLog->Entry(MongoLog::Local, "DC offset %04x %04x", fDigitizers[0][0]->ReadRegister(0x1098), fDigitizers[0][0]->ReadRegister(0x1198));
 
   fLog->Entry(MongoLog::Local, "Arm command finished, returning to main loop");
   return 0;
@@ -201,6 +203,25 @@ void DAQController::ReadData(int link){
   fDataRate = 0;
 
   uint32_t board_status = 0;
+
+  // uint32_t channel_0_status = 0;
+  // uint32_t channel_1_status = 0;
+  // uint32_t channel_2_status = 0;
+  // uint32_t channel_3_status = 0;
+  // uint32_t channel_4_status = 0;
+  // uint32_t channel_5_status = 0;
+  // uint32_t channel_6_status = 0;
+  // uint32_t channel_7_status = 0;  
+
+  // uint32_t channel_0_dc = 0;
+  // uint32_t channel_1_dc = 0;
+  // uint32_t channel_2_dc = 0;
+  // uint32_t channel_3_dc = 0;
+  // uint32_t channel_4_dc = 0;
+  // uint32_t channel_5_dc = 0;
+  // uint32_t channel_6_dc = 0;
+  // uint32_t channel_7_dc = 0; 
+
   int readcycler = 0;
   int err_val = 0;
   std::list<std::unique_ptr<data_packet>> local_buffer;
@@ -220,8 +241,45 @@ void DAQController::ReadData(int link){
       // periodically report board status
       if(readcycler == 0){
         board_status = digi->GetAcquisitionStatus();
+
+        // channel_0_status = digi->ReadRegister(0x1088);
+        // channel_1_status = digi->ReadRegister(0x1188);
+        // channel_2_status = digi->ReadRegister(0x1288);
+        // channel_3_status = digi->ReadRegister(0x1388);
+        // channel_4_status = digi->ReadRegister(0x1488);
+        // channel_5_status = digi->ReadRegister(0x1588);
+        // channel_6_status = digi->ReadRegister(0x1688);
+        // channel_7_status = digi->ReadRegister(0x1788);
+          
+        // channel_0_dc = digi->ReadRegister(0x1098);
+        // channel_1_dc = digi->ReadRegister(0x1198);
+        // channel_2_dc = digi->ReadRegister(0x1298);
+        // channel_3_dc = digi->ReadRegister(0x1398);
+        // channel_4_dc = digi->ReadRegister(0x1498);
+        // channel_5_dc = digi->ReadRegister(0x1598);
+        // channel_6_dc = digi->ReadRegister(0x1698);
+        // channel_7_dc = digi->ReadRegister(0x1798);  
         fLog->Entry(MongoLog::Local, "Board %i has status 0x%04x",
             digi->bid(), board_status);
+
+        // fLog->Entry(MongoLog::Local, "Ch 0 status reg has value 0x%04x", channel_0_status);
+        // fLog->Entry(MongoLog::Local, "Ch 1 status reg has value 0x%04x", channel_1_status);
+        // fLog->Entry(MongoLog::Local, "Ch 2 status reg has value 0x%04x", channel_2_status);
+        // fLog->Entry(MongoLog::Local, "Ch 3 status reg has value 0x%04x", channel_3_status);
+        // fLog->Entry(MongoLog::Local, "Ch 4 status reg has value 0x%04x", channel_4_status);
+        // fLog->Entry(MongoLog::Local, "Ch 5 status reg has value 0x%04x", channel_5_status);
+        // fLog->Entry(MongoLog::Local, "Ch 6 status reg has value 0x%04x", channel_6_status);
+        // fLog->Entry(MongoLog::Local, "Ch 7 status reg has value 0x%04x", channel_7_status);
+
+        // fLog->Entry(MongoLog::Local, "Ch 0 dc reg has value 0x%04x", channel_0_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 1 dc reg has value 0x%04x", channel_1_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 2 dc reg has value 0x%04x", channel_2_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 3 dc reg has value 0x%04x", channel_3_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 4 dc reg has value 0x%04x", channel_4_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 5 dc reg has value 0x%04x", channel_5_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 6 dc reg has value 0x%04x", channel_6_dc);
+        // fLog->Entry(MongoLog::Local, "Ch 7 dc reg has value 0x%04x", channel_7_dc);
+
       }
       if (digi->CheckFail()) {
         err_val = digi->CheckErrors();
@@ -392,7 +450,6 @@ void DAQController::InitLink(std::vector<std::shared_ptr<V1724>>& digis,
     success += digi->LoadDAC(dac_values[bid]);
     // Load all the other fancy stuff
     success += digi->SetThresholds(fOptions->GetThresholds(bid));
-
     fLog->Entry(MongoLog::Local, "Board %i programmed", digi->bid());
     if(success!=0){
       fLog->Entry(MongoLog::Warning, "Failed to configure digitizers.");
