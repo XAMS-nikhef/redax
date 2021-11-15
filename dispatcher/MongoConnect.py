@@ -32,21 +32,28 @@ class MongoConnect(object):
         # Define DB connectivity. Log is separate to make it easier to split off if needed
         dbn = config['ControlDatabaseName']
         rdbn = config['RunsDatabaseName']
+
+        # print(f'the dbn is {dbn}')
+        # print(f'the rdbn is {rdbn}')
         self.dax_db = control_mc[dbn]
         self.runs_db = runs_mc[rdbn]
-        self.hypervisor = hypervisor
+        # print(f'the dax is {control_mc[dbn]}')
+        # print(f'the runs is {runs_mc[rdbn]}')
+
+        # self.hypervisor = hypervisor
 
         self.latest_settings = {}
 
         self.loglevels = {"DEBUG": 0, "MESSAGE": 1, "WARNING": 2, "ERROR": 3, "FATAL": 4}
 
         # Each collection we actually interact with is stored here
+        # print(self.dax_db['detector_control_new'].find_one())
         self.collections = {
-            'incoming_commands': self.dax_db['detector_control'],
+            'incoming_commands': self.dax_db['detector_control_new'],
             'node_status': self.dax_db['status'],
             'aggregate_status': self.dax_db['aggregate_status'],
-            'outgoing_commands': self.dax_db['control'],
-            'log': self.dax_db['log'],
+            'outgoing_commands': self.dax_db['control_new'],
+            'log': self.dax_db['log_new'],
             'options': self.dax_db['options'],
             'run': self.runs_db[config['RunsDatabaseCollection']],
         }
@@ -104,7 +111,7 @@ class MongoConnect(object):
         self.dc = daq_config
         self.hv_timeout_fix = {}
         for detector in self.dc:
-            self.latest_status[detector] = {'readers': {}, 'controller': {}}
+            self.latest_status[detector] = {'readers': {}}
             for reader in self.dc[detector]['readers']:
                 self.latest_status[detector]['readers'][reader] = {}
                 self.host_config[reader] = detector
@@ -131,6 +138,7 @@ class MongoConnect(object):
     def __del__(self):
         self.quit()
 
+
     def get_update(self, dc):
         """
         Gets the latest documents from the database for
@@ -138,7 +146,9 @@ class MongoConnect(object):
         """
         try:
             for detector in dc.keys():
+                # print(f'detector is {detector}')
                 for host in dc[detector]['readers'].keys():
+                    # print(f'the host is {host}')
                     doc = self.collections['node_status'].find_one({'host': host},
                                                                    sort=[('_id', -1)])
                     dc[detector]['readers'][host] = doc
@@ -146,6 +156,7 @@ class MongoConnect(object):
                     doc = self.collections['node_status'].find_one({'host': host},
                                                                     sort=[('_id', -1)])
                     dc[detector]['controller'][host] = doc
+                    # print(f'the doc is {doc}')
         except Exception as e:
             self.logger.error(f'Got error while getting update: {type(e)}: {e}')
             return None
@@ -159,6 +170,7 @@ class MongoConnect(object):
         self.error_sent = {}
 
     def aggregate_status(self):
+        # print(f'aggregate status')
         """
         Compute the total status of each "detector" based on the most recent
         updates of its individual nodes. Here are some general rules:
@@ -187,7 +199,7 @@ class MongoConnect(object):
                     'pll_unlocks': 0,
                     'number': -1}
                 for k in self.dc}
-        phys_stat = {k: [] for k in self.dc}
+        phys_stat = {k: [] for k in self.latest_status}
         for detector in self.latest_status.keys():
             # detector = logical
             statuses = {}
@@ -196,6 +208,7 @@ class MongoConnect(object):
             run_nums = []
             for doc in self.latest_status[detector]['readers'].values():
                 phys_det = self.host_config[doc['host']]
+                # print(f'the physical detector is {phys_det}')
                 try:
                     aggstat[phys_det]['rate'] += doc['rate']
                     aggstat[phys_det]['buff'] += doc['buffer_size']
@@ -208,7 +221,8 @@ class MongoConnect(object):
                 status = self.extract_status(doc, now_time)
                 statuses[doc['host']] = status
                 phys_stat[phys_det].append(status)
-
+                modes.append(doc.get('mode', 'none'))
+                run_nums.append(doc.get('number', None))
             for doc in self.latest_status[detector]['controller'].values():
                 phys_det = self.host_config[doc['host']]
                 status = self.extract_status(doc, now_time)
@@ -274,8 +288,10 @@ class MongoConnect(object):
         Checks to see if the specified status doc corresponds to a timeout situation
         """
         host = doc['host']
+        # print('is timeout doc',doc)
         dt = t - int(str(doc['_id'])[:8], 16)
         has_ackd = self.host_ackd_command(host)
+        # print(f'it has ackd {has_ackd}')
         ret = False
         if dt > self.timeout:
             self.logger.debug(f'{host} last reported {int(dt)} sec ago')
@@ -284,7 +300,7 @@ class MongoConnect(object):
             if host not in self.host_is_timeout:
                 self.logger.critical(f'{host} hasn\'t ackd a command from {int(t-has_ackd)} sec ago')
                 self.host_is_timeout.add(host)
-            if self.host_config[host] == 'tpc':
+            if self.host_config[host] == 'xams':
                 dt = (now() - self.hv_timeout_fix[host]).total_seconds()
                 if dt > self.hypervisor_host_restart_timeout:
                     self.log_error(f'Hypervisor fixes timeout of {host}', "ERROR", "ERROR")
@@ -322,36 +338,36 @@ class MongoConnect(object):
             self.logger.debug(f'get_wanted_state failed due to {type(e)} {e}')
             return None
 
-    def is_linked_mode(self):
-        """
-        Are we in a linked configuration for this control iteration?
-        """
-        # self.dc has the physical detectors, self.latest_status has the logical detectors
-        return len(self.dc.keys()) != len(self.latest_status.keys())
+    # def is_linked_mode(self):
+    #     """
+    #     Are we in a linked configuration for this control iteration?
+    #     """
+    #     # self.dc has the physical detectors, self.latest_status has the logical detectors
+    #     return len(self.dc.keys()) != len(self.latest_status.keys())
 
-    def is_linked(self, a, b):
-        """
-        Check if the detectors are in a compatible linked configuration.
-        """
-        mode_a = self.goal_state[a]["mode"]
-        mode_b = self.goal_state[b]["mode"]
-        if mode_a != mode_b:
-            self.logger.debug(f'{a} and {b} are not linked ({mode_a}/{mode_b})')
-            # shortcut to lessen the load on the db
-            return False
+    # def is_linked(self, a, b):
+    #     """
+    #     Check if the detectors are in a compatible linked configuration.
+    #     """
+    #     mode_a = self.goal_state[a]["mode"]
+    #     mode_b = self.goal_state[b]["mode"]
+    #     if mode_a != mode_b:
+    #         self.logger.debug(f'{a} and {b} are not linked ({mode_a}/{mode_b})')
+    #         # shortcut to lessen the load on the db
+    #         return False
 
-        # we don't need to pull the whole combined document because the 'detector' field is at the top level
-        detectors = self.collections['options'].find_one({'name': mode_a}, {'detector': 1})['detector']
+    #     # we don't need to pull the whole combined document because the 'detector' field is at the top level
+    #     detectors = self.collections['options'].find_one({'name': mode_a}, {'detector': 1})['detector']
 
-        # Check if the linked detectors share the same run mode and
-        # if they are both present in the detectors list of that mode
-        # also no "tpc_muon_veto" bullshit, it must be ['tpc', 'muon_veto']
-        if isinstance(detectors, list) and a in detectors and b in detectors:
-            self.logger.debug(f'{a} and {b} are linked ({mode_a}/{detectors})')
-            return True
-        else:
-            self.logger.debug(f'{a} and {b} aren\'t link?? How this happen?? {mode_a} {detectors}')
-            return False
+    #     # Check if the linked detectors share the same run mode and
+    #     # if they are both present in the detectors list of that mode
+    #     # also no "tpc_muon_veto" bullshit, it must be ['tpc', 'muon_veto']
+    #     if isinstance(detectors, list) and a in detectors and b in detectors:
+    #         self.logger.debug(f'{a} and {b} are linked ({mode_a}/{detectors})')
+    #         return True
+    #     else:
+    #         self.logger.debug(f'{a} and {b} aren\'t link?? How this happen?? {mode_a} {detectors}')
+    #         return False
 
     def get_super_detector(self):
         """
@@ -364,47 +380,49 @@ class MongoConnect(object):
         - case E: tpc unlinked, mv and nv linked
         We will check the compatibility of the linked mode for a pair of detectors per time.
         """
-        ret = {'tpc': {'controller': self.dc['tpc']['controller'][:],
-                       'readers': self.dc['tpc']['readers'][:],
-                       'detectors': ['tpc']}}
-        mv = self.dc['muon_veto']
-        nv = self.dc['neutron_veto']
+        ret = {'xams': {'controller': self.dc['xams']['controller'][:],
+                       'readers': self.dc['xams']['readers'][:],
+                       'detectors': ['xams']}}
+        # mv = self.dc['muon_veto']
+        # nv = self.dc['neutron_veto']
 
-        tpc_mv = self.is_linked('tpc', 'muon_veto')
-        tpc_nv = self.is_linked('tpc', 'neutron_veto')
-        mv_nv = self.is_linked('muon_veto', 'neutron_veto')
+        # tpc_mv = self.is_linked('tpc', 'muon_veto')
+        # tpc_nv = self.is_linked('tpc', 'neutron_veto')
+        # mv_nv = self.is_linked('muon_veto', 'neutron_veto')
 
         # tpc and muon_veto linked mode
-        if tpc_mv:
-            # case A or C
-            ret['tpc']['controller'] += mv['controller']
-            ret['tpc']['readers'] += mv['readers']
-            ret['tpc']['detectors'] += ['muon_veto']
-        else:
-            # case B or E
-            ret['muon_veto'] = {'controller': mv['controller'][:],
-                                'readers': mv['readers'][:],
-                                'detectors': ['muon_veto']}
-        if tpc_nv:
-            # case A or D
-            ret['tpc']['controller'] += nv['controller'][:]
-            ret['tpc']['readers'] += nv['readers'][:]
-            ret['tpc']['detectors'] += ['neutron_veto']
-        elif mv_nv and not tpc_mv:
-            # case E
-            ret['muon_veto']['controller'] += nv['controller'][:]
-            ret['muon_veto']['readers'] += nv['readers'][:]
-            ret['muon_veto']['detectors'] += ['neutron_veto']
-        else:
-            # case B or C
-            ret['neutron_veto'] = {'controller': nv['controller'][:],
-                                   'readers': nv['readers'][:],
-                                   'detectors': ['neutron_veto']}
+        # if tpc_mv:
+        #     # case A or C
+        #     ret['tpc']['controller'] += mv['controller']
+        #     ret['tpc']['readers'] += mv['readers']
+        #     ret['tpc']['detectors'] += ['muon_veto']
+        # else:
+        #     # case B or E
+        #     ret['muon_veto'] = {'controller': mv['controller'][:],
+        #                         'readers': mv['readers'][:],
+        #                         'detectors': ['muon_veto']}
+        # if tpc_nv:
+        #     # case A or D
+        #     ret['tpc']['controller'] += nv['controller'][:]
+        #     ret['tpc']['readers'] += nv['readers'][:]
+        #     ret['tpc']['detectors'] += ['neutron_veto']
+        # elif mv_nv and not tpc_mv:
+        #     # case E
+        #     ret['muon_veto']['controller'] += nv['controller'][:]
+        #     ret['muon_veto']['readers'] += nv['readers'][:]
+        #     ret['muon_veto']['detectors'] += ['neutron_veto']
+        # else:
+        #     # case B or C
+        #     ret['neutron_veto'] = {'controller': nv['controller'][:],
+        #                            'readers': nv['readers'][:],
+        #                            'detectors': ['neutron_veto']}
 
         # convert the host lists to dics for later
+        # print(ret)
         for det in list(ret.keys()):
             ret[det]['controller'] = {c:{} for c in ret[det]['controller']}
             ret[det]['readers'] = {c:{} for c in ret[det]['readers']}
+        # print(ret)
         return ret
 
     def get_run_mode(self, mode):
@@ -479,6 +497,7 @@ class MongoConnect(object):
         if number == -1:
             return
         try:
+            # print('line 500')
             time.sleep(0.5) # this number depends on the CC command polling time
             if (endtime := self.get_ack_time(detectors, 'stop') ) is None:
                 self.logger.debug(f'No end time found for run {number}')
@@ -488,6 +507,7 @@ class MongoConnect(object):
             if force:
                 updates["$push"] = {"tags": {"name": "_messy", "user": "daq",
                     "date": now()}}
+            # print('line 510')
             if self.collections['run'].update_one(query, updates).modified_count == 1:
                 self.logger.debug('Update successful')
                 rate = {}
@@ -499,17 +519,20 @@ class MongoConnect(object):
                     ]):
                     rate[doc['_id']] = {'avg': doc['avg'], 'max': doc['max']}
                 channels = set()
-                if 'tpc' in detectors:
-                    # figure out which channels weren't running
-                    readers = list(self.latest_status[detectors]['readers'].keys())
-                    for doc in self.collections['node_status'].find({'host': {'$in': readers}, 'number': int(number)}):
-                        channels |= set(map(int, doc['channels'].keys()))
+                # if 'xams' in detectors:
+                #     # figure out which channels weren't running
+                #     readers = list(self.latest_status[detectors]['readers'].keys())
+                #     for doc in self.collections['node_status'].find({'host': {'$in': readers}, 'number': int(number)}):
+                #         channels |= set(map(int, doc['channels'].keys()))
+                # print('line 527')
                 updates = {'rate': rate}
-                if len(channels):
-                    updates['no_data_from'] = sorted(list(set(range(494)) - channels))
+                # if len(channels):
+                #     updates['no_data_from'] = sorted(list(set(range(494)) - channels))
                 self.collections['run'].update_one({'number': int(number)},
                                                    {'$set': updates})
+                # print('line 533')
                 if str(number) in self.run_start_cache:
+                    # print('line 535')
                     del self.run_start_cache[str(number)]
             else:
                 self.logger.debug('No run updated?')
@@ -522,7 +545,7 @@ class MongoConnect(object):
         Finds the time when specified detector's crate controller ack'd the specified command
         '''
         # the first cc is the "master", so its ack time is what counts
-        cc = list(self.latest_status[detector]['controller'].keys())[0]
+        cc = list(self.latest_status[detector]['readers'].keys())[0]
         query = {'host': cc, f'acknowledged.{cc}': {'$ne': 0}, 'command': command}
         sort = [('_id', -1)]
         doc = self.collections['outgoing_commands'].find_one(query, sort=sort)
@@ -537,23 +560,30 @@ class MongoConnect(object):
                 # Welp
                 self.logger.debug(f'No recent ack time for {detector}-{command}')
                 return None
+        # ret = doc['acknowledged'][cc]
+        # print(f'in get ack time{ret}')
         return doc['acknowledged'][cc]
 
     def send_command(self, command, hosts, user, detector, mode="", delay=0, force=False):
         """
         Send this command to these hosts. If delay is set then wait that amount of time
         """
+        # print('in send command:', hosts)
         number = None
         ls = self.latest_status[detector]
         for host_list in hosts:
             for h in host_list:
+                # print(f'h is {h}')
                 if h not in ls['readers'] and h not in ls['controller']:
                     self.logger.error(f'Trying to issue a {command} to {detector}/{h}?')
                     host_list.remove(h)
+        # print(f'in send_command before calling the culprit')
+   
         if command == 'stop' and not self.detector_ackd_command(detector, 'stop'):
             self.logger.error(f"{detector} hasn't ack'd its last stop, let's not flog a dead horse")
             if not force:
                 return 1
+
         try:
             if command == 'arm':
                 number = self.get_next_run_number()
@@ -570,25 +600,30 @@ class MongoConnect(object):
             if command == 'arm':
                 doc_base['options_override'] = {'number': number}
             if delay == 0:
+                # print('arm')
                 docs = doc_base
                 docs['host'] = hosts[0]+hosts[1]
                 docs['acknowledged'] = {h:0 for h in docs['host']}
                 docs = [docs]
+                # print('finish if of delay')
             else:
+                # print('else statement')
                 docs = [dict(doc_base.items()), dict(doc_base.items())]
                 docs[0]['host'], docs[1]['host'] = hosts
                 docs[0]['acknowledged'] = {h:0 for h in docs[0]['host']}
                 docs[1]['acknowledged'] = {h:0 for h in docs[1]['host']}
                 docs[1]['createdAt'] += datetime.timedelta(seconds=delay)
             with self.q_mutex:
+                # here parenthesis
                 self.command_queue += docs
         except Exception as e:
             self.logger.debug(f'SendCommand ran into {type(e)}, {e})')
             return -1
         else:
-            self.logger.debug(f'Queued {command} for {detector}')
+            self.logger.debug(f'Queued {command} for {detector}. Now {self.command_queue}')
             self.event.set()
         return 0
+    
 
     def process_commands(self):
         """
@@ -599,18 +634,26 @@ class MongoConnect(object):
             try:
                 with self.q_mutex:
                     if len(self.command_queue) > 1:
+                        # print('first if')
+                        self.logger.warning(self.command_queue)
                         self.command_queue.sort(key=lambda d : d['createdAt'].timestamp())
                     if len(self.command_queue) > 0:
+                        # print('second if')
                         next_cmd = self.command_queue[0]
                         dt = (next_cmd['createdAt'].replace(tzinfo=pytz.utc) - now()).total_seconds()
                     else:
                         dt = 10
+                        # print('else')
                 if dt < 0.01:
+                    # print('if dt')
                     with self.q_mutex:
+                        # print('in the with')
                         outgoing.insert_one(self.command_queue.pop(0))
             except Exception as e:
                 dt = 10
                 self.logger.error(f"DB down? {type(e)}, {e}")
+                raise e
+            # print('out of the try')
             self.event.clear()
             self.event.wait(dt)
 
@@ -643,10 +686,15 @@ class MongoConnect(object):
         # exist, the dispatcher basically stops working
         hosts_this_detector = set(self.latest_status[detector]['readers'].keys()) | set(self.latest_status[detector]['controller'].keys())
         hosts_in_doc = set(doc['host'])
+        # print("HOSTS       : ",(hosts_this_detector))
+        # print("HOSTS in doc: ",(hosts_in_doc))
+
         hosts_ignored = hosts_in_doc - hosts_this_detector
         if len(hosts_ignored):
             self.logger.warning(f'Ignoring hosts: {hosts_ignored}')
         # so we only loop over the intersection of this detector's hosts and the doc's hosts
+        # print(doc)
+        # print(doc['acknowledged'])
         for h in hosts_this_detector & hosts_in_doc:
             if doc['acknowledged'][h] == 0:
                 return False

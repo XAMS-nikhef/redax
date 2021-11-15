@@ -23,21 +23,21 @@ def main():
     config = config['DEFAULT' if not args.test else "TESTING"]
     daq_config = json.loads(config['MasterDAQConfig'])
     control_mc = daqnt.get_client('daq')
-    runs_mc = daqnt.get_client('runs')
+    runs_mc = daqnt.get_client('run')
     logger = daqnt.get_daq_logger(config['LogName'], level=args.log, mc=control_mc)
     vme_config = json.loads(config['VMEConfig'])
 
     # Declare necessary classes
     sh = daqnt.SignalHandler()
-    SlackBot = daqnt.DaqntBot(os.environ['SLACK_KEY'])
-    Hypervisor = daqnt.Hypervisor(control_mc[config['ControlDatabaseName']], logger,
-            daq_config, vme_config, control_inputs=config['ControlKeys'].split(), sh=sh,
-            testing=args.test, slackbot=SlackBot)
-    MongoConnector = MongoConnect(config, daq_config, logger, control_mc, runs_mc, Hypervisor, args.test)
-    DAQControl = DAQController(config, daq_config, MongoConnector, logger, Hypervisor)
+    # SlackBot = daqnt.DaqntBot(os.environ['SLACK_KEY'])
+    # Hypervisor = daqnt.Hypervisor(control_mc[config['ControlDatabaseName']], logger,
+    #         daq_config, vme_config, control_inputs=config['ControlKeys'].split(), sh=sh,
+    #         testing=args.test, slackbot=SlackBot)
+    MongoConnector = MongoConnect(config, daq_config, logger, control_mc, runs_mc, args.test)
+    DAQControl = DAQController(config, daq_config, MongoConnector, logger,)
     # connect the triangle
-    Hypervisor.mongo_connect = MongoConnector
-    Hypervisor.daq_controller = DAQControl
+    # Hypervisor.mongo_connect = MongoConnector
+    # Hypervisor.daq_controller = DAQControl
 
     sleep_period = int(config['PollFrequency'])
 
@@ -48,7 +48,7 @@ def main():
         # Get most recent goal state from database. Users will update this from the website.
         if (goal_state := MongoConnector.get_wanted_state()) is None:
             continue
-        # Get the Super-Detector configuration
+        # # Get the Super-Detector configuration
         current_config = MongoConnector.get_super_detector()
         # Get most recent check-in from all connected hosts
         if (latest_status := MongoConnector.get_update(current_config)) is None:
@@ -62,10 +62,10 @@ def main():
             if latest_status[detector]['number'] != -1:
                 msg += f' ({latest_status[detector]["number"]})'
             logger.debug(msg)
-        msg = (f"Linking: tpc-mv: {MongoConnector.is_linked('tpc', 'muon_veto')}, "
-               f"tpc-nv: {MongoConnector.is_linked('tpc', 'neutron_veto')}, "
-               f"mv-nv: {MongoConnector.is_linked('muon_veto', 'neutron_veto')}")
-        logger.debug(msg)
+        # msg = (f"Linking: tpc-mv: {MongoConnector.is_linked('tpc', 'muon_veto')}, "
+        #        f"tpc-nv: {MongoConnector.is_linked('tpc', 'neutron_veto')}, "
+        #        f"mv-nv: {MongoConnector.is_linked('muon_veto', 'neutron_veto')}")
+        # logger.debug(msg)
 
         # Decision time. Are we actually in our goal state? If not what should we do?
         DAQControl.solve_problem(latest_status, goal_state)
