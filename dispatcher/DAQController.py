@@ -362,7 +362,9 @@ class DAQController():
             self.logger.debug(f'No start time for {number}?')
             return
         time_now = now()
-        run_length = int(self.goal_state[detector]['stop_after'])*20
+        # before run_length was times 20 (minutes) (or change, default to 30 mins and do this times 60)
+        # but removed this here for when using webinterface to start DAQ
+        run_length = int(self.goal_state[detector]['stop_after'])
         run_duration = (time_now - start_time).total_seconds()
         self.logger.debug('Checking run turnover for %s: %i/%i' % (detector, run_duration, run_length))
         if run_duration > run_length:

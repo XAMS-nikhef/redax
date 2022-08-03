@@ -442,20 +442,21 @@ void DAQController::InitLink(std::vector<std::shared_ptr<V1724>>& digis,
       return;
     }
 
-    for(auto& regi : fOptions->GetRegisters(bid)){
-      unsigned int reg = DAXHelpers::StringToHex(regi.reg);
-      unsigned int val = DAXHelpers::StringToHex(regi.val);
-      success+=digi->WriteRegister(reg, val);
-    }
     success += digi->LoadDAC(dac_values[bid]);
     // Load all the other fancy stuff
     success += digi->SetThresholds(fOptions->GetThresholds(bid));
-    fLog->Entry(MongoLog::Local, "Board %i programmed", digi->bid());
     if(success!=0){
       fLog->Entry(MongoLog::Warning, "Failed to configure digitizers.");
       ret = -1;
       return;
     }
+    // Overwrite specified registers lastly to force settings.
+    for(auto& regi : fOptions->GetRegisters(bid)){
+      unsigned int reg = DAXHelpers::StringToHex(regi.reg);
+      unsigned int val = DAXHelpers::StringToHex(regi.val);
+      success+=digi->WriteRegister(reg, val);
+    }
+    fLog->Entry(MongoLog::Local, "Board %i programmed", digi->bid());
   } // loop over digis per link
 
   ret = 0;

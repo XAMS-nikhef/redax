@@ -11,7 +11,7 @@ collection = db['options']
 run_mode = {
 	# Organitation Fields
 	# "_id": ObjectId("5d30e9d05e13ab6116c43bf9"),
-    "name": "software_update_V1730_part2",
+    "name": "software_update_V1730_part3",
     "user": "dipede",
     "description": "redax update for V1730",
     "detector" : "xams",

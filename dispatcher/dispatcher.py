@@ -24,6 +24,7 @@ def main():
     daq_config = json.loads(config['MasterDAQConfig'])
     control_mc = daqnt.get_client('daq')
     runs_mc = daqnt.get_client('run')
+    print(control_mc,runs_mc)
     logger = daqnt.get_daq_logger(config['LogName'], level=args.log, mc=control_mc)
     vme_config = json.loads(config['VMEConfig'])
 

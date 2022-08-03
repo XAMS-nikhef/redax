@@ -5,7 +5,7 @@
 V1730::V1730(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& options, int bid, unsigned address)
   :V1724(log, options, bid, address){
   // fNChannels = 16;
-  fNChannels = 8
+  fNChannels = 8;
   fSampleWidth = 2;
   fClockCycle = 2;
   fArtificialDeadtimeChannel = 792;
