@@ -3,6 +3,32 @@ from daqnt import DAQ_STATUS
 import threading
 import time
 import pytz
+import numpy as np
+
+
+def encode_for_numpy(doc):
+    if '_id' in doc:
+        del doc['_id']
+    mode_max_length = 32
+    t = (
+            doc['time'].isoformat().split('+')[0], # strip tz info
+            doc['detector'],
+            doc['number'],
+            (doc['mode'] or '')[:mode_max_length].lower(),
+            doc['rate'],
+            doc['buff'],
+            doc['status'],
+            )
+    dtype = [
+            ('time', 'datetime64[us]'),
+            ('detector', 'U16'),
+            ('number', np.int32),
+            ('mode', f'U{mode_max_length}'),
+            ('rate', np.float32),
+            ('buff', np.float32),
+            ('status', np.int8)
+            ]
+    return t, dtype
 
 
 def _all(values, target):
@@ -121,6 +147,7 @@ class MongoConnect(object):
                 self.host_config[controller] = detector
                 self.hv_timeout_fix[controller] = now()
 
+        self.should_backup_aggstat = True
         self.logger = logger
         self.run = True
         self.event = threading.Event()
@@ -137,6 +164,38 @@ class MongoConnect(object):
 
     def __del__(self):
         self.quit()
+
+    def backup_aggstat(self):
+        """
+        Backs up the aggregate status collection by numpyizing it
+        """
+        today = now()
+        coll = self.collections['aggregate_status']
+        if today.day == 1 and self.should_backup_aggstat:
+            then = (today - datetime.timedelta(days=31)).replace(tzinfo=None)
+            self.logger.info(f'Backing up aggregated status older than {then.isoformat()}')
+            data = []
+            dtype = None
+            for doc in coll.find({'time': {'$lt': then}}):
+                try:
+                    row, dtype = encode_for_numpy(doc)
+                    data.append(row)
+                except Exception as e:
+                    self.logger.debug(f'Error encoding {doc}')
+                    return
+            try:
+                data = np.array(data, dtype=dtype)
+                # TODO better place to store them?
+                with open(f'/daq_common2/logs/aggstat_{then.year}{then.month:02d}{then.day:02d}.npz', 'wb') as f:
+                    np.savez_compressed(f, data=data)
+            except Exception as e:
+                self.logger.error(f'Caught a {type(e)} while numpyizing aggstat: {e}')
+            else:
+                ret = coll.delete_many({'time': {'$lt': then}})
+                self.logger.debug(f'Backed up {ret.deleted_count} docs')
+                self.should_backup_aggstat = False
+        else:
+            self.should_backup_aggstat = today.day != 1
 
 
     def get_update(self, dc):
@@ -206,7 +265,10 @@ class MongoConnect(object):
             status = None
             modes = []
             run_nums = []
-            for doc in self.latest_status[detector]['readers'].values():
+            for n, doc in self.latest_status[detector]['readers'].items():
+                if doc is None:
+                    self.logger.debug(f'{n} seems to have been offline for a few days')
+                    continue
                 phys_det = self.host_config[doc['host']]
                 # print(f'the physical detector is {phys_det}')
                 try:
@@ -221,9 +283,14 @@ class MongoConnect(object):
                 status = self.extract_status(doc, now_time)
                 statuses[doc['host']] = status
                 phys_stat[phys_det].append(status)
-                modes.append(doc.get('mode', 'none'))
-                run_nums.append(doc.get('number', None))
-            for doc in self.latest_status[detector]['controller'].values():
+
+            for n, doc in self.latest_status[detector]['controller'].items():
+                if doc is None:
+                    self.logger.debug(f'{n} seems to have been offline for a few days')
+                    modes.append('none')
+                    run_nums.append(-1)
+                    statuses['none'] = DAQ_STATUS.UNKNOWN
+                    continue
                 phys_det = self.host_config[doc['host']]
                 status = self.extract_status(doc, now_time)
                 statuses[doc['host']] = status
@@ -293,8 +360,8 @@ class MongoConnect(object):
         has_ackd = self.host_ackd_command(host)
         # print(f'it has ackd {has_ackd}')
         ret = False
+        self.logger.debug(f'{host} last reported {int(dt)} sec ago')
         if dt > self.timeout:
-            self.logger.debug(f'{host} last reported {int(dt)} sec ago')
             ret = ret or True
         if has_ackd is not None and t - has_ackd > self.timeout_take_action:
             if host not in self.host_is_timeout:
@@ -663,9 +730,10 @@ class MongoConnect(object):
         :param host: str, the process name to check
         :returns: float, the timestamp of the last unack'd command, or None if none exist
         """
-        q = {f'acknowledged.{host}': 0}
+        q = {'host': host, f'acknowledged.{host}': 0}
         sort = [('_id', 1)]
         if (doc := self.collections['outgoing_commands'].find_one(q, sort=sort)) is None:
+            self.logger.debug(f'No unack\'d commands for {host}')
             return None
         return doc['createdAt'].replace(tzinfo=pytz.utc).timestamp()
 
