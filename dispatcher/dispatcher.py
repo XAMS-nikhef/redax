@@ -25,7 +25,7 @@ def main():
     control_mc = daqnt.get_client('daq')
     runs_mc = daqnt.get_client('run')
     print(control_mc,runs_mc)
-    logger = daqnt.get_daq_logger(config['LogName'], level=args.log, mc=control_mc)
+    logger = daqnt.get_daq_logger(config['LogName'], level=args.log, mc=control_mc, logdir=config['LogDir'])
     vme_config = json.loads(config['VMEConfig'])
 
     # Declare necessary classes
