@@ -30,7 +30,7 @@ def get_daq_logger(name,
                              'logging to "main.log" whatever that means.')
         process_name = name
     logger = logging.getLogger(name)
-    logger.addHandler(DAQLogHandler(process_name, opening_message=opening_message, logdir='/home/xams/daq/daq_common2/logs', **kwargs))
+    logger.addHandler(DAQLogHandler(process_name, opening_message=opening_message, **kwargs))
     if isinstance(level, str):
         level = getattr(logging, level)
     logger.setLevel(level)
