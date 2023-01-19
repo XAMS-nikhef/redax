@@ -48,11 +48,15 @@ int DAQController::Arm(std::shared_ptr<Options>& options){
   fPLL = 0;
   fStatus = DAXHelpers::Arming;
   int num_boards = 0;
+
+
   for(auto& d : fOptions->GetBoards("V17XX")){
     fLog->Entry(MongoLog::Local, "Arming new digitizer %i", d.board);
 
     std::shared_ptr<V1724> digi;
     try{
+      //fLog->Entry(MongoLog::Local, "%s", d.type);
+      
       if(d.type == "V1724_MV")
         digi = std::make_shared<V1724_MV>(fLog, fOptions, d.board, d.vme_address);
       else if(d.type == "V1730")

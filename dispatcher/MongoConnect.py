@@ -27,7 +27,7 @@ class MongoConnect(object):
 
     """
 
-    def __init__(self, config, daq_config, logger, control_mc, runs_mc, hypervisor, testing=False):
+    def __init__(self, config, daq_config, logger, control_mc, runs_mc, testing=False):
 
         # Define DB connectivity. Log is separate to make it easier to split off if needed
         dbn = config['ControlDatabaseName']

@@ -9,7 +9,9 @@ def get_client(which='daq'):
     :param which: str, daq/runs, the deployment you want to connect to
     :returns: pymongo.MongoClient
     """
-#     pw = quote_plus(os.environ[f'MONGO_PASSWORD_{which.upper()}'])
+#    pw = quote_plus(os.environ[f'MONGO_PASSWORD'])
 #     port = 27020 if which == 'daq' else 27017
     return MongoClient(f'mongodb://{os.environ["MONGO_USER"]}:{os.environ["MONGO_PASSWORD"]}@127.0.0.1:27017/admin')
+
+print(MongoClient(f'mongodb://{os.environ["MONGO_USER"]}:{os.environ["MONGO_PASSWORD"]}@127.0.0.1:27017/admin'))
 

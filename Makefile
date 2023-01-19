@@ -2,7 +2,7 @@ SHELL	= /bin/bash -O extglob -c
 CC	= g++
 CXX	= g++
 BUILD_COMMIT = "$(shell git log -n 1 --pretty=oneline | awk '{print $$1}')"
-CFLAGS	= -Wall -Wextra -pedantic -pedantic-errors -g -O2 -DLINUX -DREDAX_BUILD_COMMIT='$(BUILD_COMMIT)' -std=c++17 -pthread $(shell pkg-config --cflags libmongocxx)
+CFLAGS	= -std=c++17 -Wall -Wextra -pedantic -pedantic-errors -g -O2 -DLINUX -DREDAX_BUILD_COMMIT='$(BUILD_COMMIT)' -pthread $(shell pkg-config --cflags libmongocxx)
 CPPFLAGS := $(CFLAGS)
 IS_READER0 := false
 ifeq "$(shell hostname)" "reader0"
@@ -23,6 +23,7 @@ ifeq "$(IS_READER0)" "true"
 	CFLAGS += -DHASDDC10
 	LDFLAGS += -lexpect -ltcl8.6
 endif
+
 
 all: $(EXEC_SLAVE)
 

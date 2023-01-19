@@ -62,8 +62,8 @@ class DAQLogHandler(logging.Handler):
         self.process_name = process_name
         now = datetime.datetime.utcnow()
         self.today = datetime.date(now.year, now.month, now.day)
-        if not os.path.exists(logdir):
-            raise OSError(f'Are you on the DAQ? {logdir} does not exist..')
+        #if not os.path.exists(logdir):
+        #    raise OSError(f'Are you on the DAQ? {logdir} does not exist..')
         self.logdir = logdir
         self.Rotate(self.today)
         self.count = 0
@@ -146,7 +146,9 @@ class DAQLogHandler(logging.Handler):
         """
         day_dir = os.path.join(self.logdir, f"{when.year:04d}", f"{when.month:02d}.{when.day:02d}")
         os.makedirs(day_dir, exist_ok=True)
-        return os.path.join(day_dir, self.Filename(when))
+        file_day = f'{when.year:04d}{when.month:02d}{when.day:02d}'
+        file_name = f"{file_day}_{self.process_name}.log"
+        return os.path.join(self.logdir, file_name)
 
     def Filename(self, when):
         """

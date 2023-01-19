@@ -1,6 +1,7 @@
 #ifndef _V1724_HH_
 #define _V1724_HH_
 
+#include <string>
 #include <cstdint>
 #include <vector>
 #include <map>

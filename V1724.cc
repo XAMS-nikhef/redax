@@ -55,7 +55,31 @@ V1724::~V1724(){
 }
 
 int V1724::Init(int link, int crate, std::shared_ptr<Options>& opts) {
-  int a = CAENVME_Init(cvV2718, link, crate, &fBoardHandle);
+  
+  // Different initialization based on connection type (USB or PCI_card)
+  std::string connection_type_USB = "USB";
+  std::string connection_type_PCI = "PCI";
+  std::string connection_type = opts->GetString("connection_type", connection_type_PCI);
+  
+  int a = 0;
+  
+  if (connection_type == connection_type_USB){
+      int link_PID = opts->GetInt("link_PID", 0);
+      if (link_PID == 0){fLog->Entry(MongoLog::Error, "Please set link_PID in options file");}
+  
+      fLog->Entry(MongoLog::Local, "%d %d %d \n",cvUSB_A4818_LOCAL,link_PID,crate);
+      a = CAENVME_Init(cvUSB_A4818_V3718_LOCAL,0,link_PID, &fBoardHandle);
+      //int a = CAENVME_Init(cvUSB_A4818, link_PID, crate, &fBoardHandle);
+  }
+  else if (connection_type == connection_type_PCI){
+    a = CAENVME_Init(cvV2718, link, crate, &fBoardHandle);
+    fLog->Entry(MongoLog::Local, "%d %d %d \n",cvV2718,link,crate);
+  } else {
+    fLog->Entry(MongoLog::Error, "noooo cant happen");
+    return -1;
+
+  }
+  
   if(a != cvSuccess){
     fLog->Entry(MongoLog::Warning, "Board %i failed to init, error %i handle %i link %i bdnum %i",
             fBID, a, fBoardHandle, link, crate);
@@ -75,6 +99,7 @@ int V1724::Init(int link, int crate, std::shared_ptr<Options>& opts) {
     fLog->Entry(MongoLog::Local, "Board %i reset", fBID);
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
   if (opts->GetInt("do_sn_check", 0) != 0) {
     if ((word = ReadRegister(fSNRegisterLSB)) == 0xFFFFFFFF) {
       fLog->Entry(MongoLog::Error, "Board %i couldn't read its SN lsb", fBID);
@@ -280,6 +305,7 @@ int V1724::LoadDAC(std::vector<uint16_t> &dac_values){
   // Loads DAC values into registers
   for(unsigned int x=0; x<fNChannels; x++){
     fLog->Entry(MongoLog::Local, "Channel %i will have dc offset of %i", x, dac_values[x]);
+    //int tmpAdress = 0x1088+(0x100)*x;
     if(WriteRegister((fChDACRegister)+(0x100*x), dac_values[x])!=0){
       fLog->Entry(MongoLog::Error, "Board %i failed writing DAC 0x%04x in channel %i",
 		  fBID, dac_values[x], x);

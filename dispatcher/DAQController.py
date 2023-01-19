@@ -211,7 +211,9 @@ class DAQController():
         else:
             dt_last = self.time_between_commands*2
 
+        self.logger.info('dt = %f  dt_last = %f T0 = %f T1 = %f' % (dt,dt_last,self.timeouts[command],self.time_between_commands))
         if (dt > self.timeouts[command] and dt_last > self.time_between_commands) or force:
+        #if (dt_last > self.time_between_commands) or force:
             # print('if nested')
             ls = self.latest_status
             gs = self.goal_state

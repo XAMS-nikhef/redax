@@ -316,12 +316,14 @@ void StraxFormatter::Process() {
   if (fMutexWaitTime.size() > 0) std::sort(fMutexWaitTime.begin(), fMutexWaitTime.end());
 }
 
+
 // Can tune here as needed, these are defaults from the LZ4 examples
 static const LZ4F_preferences_t kPrefs = {
-  { LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame, 0, { 0, 0 } },
+  { LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame, 0,  0, LZ4F_noBlockChecksum  },
     0,   /* compression level; 0 == default */
     0,   /* autoflush */
-    { 0, 0, 0 },  /* reserved, must be set to 0 */
+0,
+     {0, 0, 0} ,  /* reserved, must be set to 0 */
 };
 
 void StraxFormatter::WriteOutChunk(int chunk_i){

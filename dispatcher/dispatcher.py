@@ -22,6 +22,7 @@ def main():
     config.read(args.config)
     config = config['DEFAULT' if not args.test else "TESTING"]
     daq_config = json.loads(config['MasterDAQConfig'])
+    print(daq_config)
     control_mc = daqnt.get_client('daq')
     runs_mc = daqnt.get_client('run')
     print(control_mc,runs_mc)
