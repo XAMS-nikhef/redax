@@ -130,15 +130,22 @@ int DAQController::Start(){
     for(auto& link : fDigitizers ){
       for(auto& digi : link.second){
 
+	fLog->Entry(MongoLog::Local, "board:: %i link:: %i", digi->bid(), digi->link());
 	// Ensure digitizer is ready to start
 	if(digi->EnsureReady(1000, 1000)!= true){
 	  fLog->Entry(MongoLog::Warning, "Digitizer not ready to start after sw command sent");
 	  return -1;
 	}
 
-	// Send start command
-	digi->SoftwareStart();
-
+	// Send start command for first digitizer
+	// APC software start for first digitizer in the chain
+	if(digi->crate() == 0){
+          digi->SoftwareStart();
+        } else {
+	  digi->SINStart();
+	}
+	// APC 
+	
 	// Ensure digitizer is started
 	if(digi->EnsureStarted(1000, 1000)!=true){
 	  fLog->Entry(MongoLog::Warning,

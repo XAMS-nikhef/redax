@@ -49,11 +49,13 @@ class MongoConnect(object):
         # Each collection we actually interact with is stored here
         # print(self.dax_db['detector_control_new'].find_one())
         self.collections = {
-            'incoming_commands': self.dax_db['detector_control_new'],
+            #'incoming_commands': self.dax_db['detector_control_new'],
+            'incoming_commands': self.dax_db['detector_control'],
             'node_status': self.dax_db['status'],
             'aggregate_status': self.dax_db['aggregate_status'],
-            'outgoing_commands': self.dax_db['control_new'],
-            'log': self.dax_db['log_new'],
+            'outgoing_commands': self.dax_db['control'],
+            # 'log': self.dax_db['log_new'],
+            'log': self.dax_db['log'],
             'options': self.dax_db['options'],
             'run': self.runs_db[config['RunsDatabaseCollection']],
         }

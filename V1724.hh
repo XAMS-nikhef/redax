@@ -27,6 +27,8 @@ class V1724{
   virtual int End();
 
   int bid() {return fBID;}
+  int link() {return fLink;}
+  int crate() {return fCrate;}
   uint16_t SampleWidth() {return fSampleWidth;}
   int GetClockWidth() {return fClockCycle;}
   int16_t GetADChannel() {return fArtificialDeadtimeChannel;}
@@ -80,6 +82,8 @@ protected:
   virtual int GetClockCounter(uint32_t);
   int fBoardHandle;
   int fBID;
+  int fLink;
+  int fCrate;
   unsigned int fBaseAddress;
 
   // Stuff for clock reset tracking

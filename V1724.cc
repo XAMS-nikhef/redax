@@ -42,6 +42,9 @@ V1724::V1724(std::shared_ptr<MongoLog>& log, std::shared_ptr<Options>& opts, int
   fClockPeriod = std::chrono::nanoseconds((1l<<31)*fClockCycle);
   fArtificialDeadtimeChannel = 790;
 
+  fLink = -1;
+  fCrate = -1;
+
 }
 
 V1724::~V1724(){
@@ -55,7 +58,8 @@ V1724::~V1724(){
 }
 
 int V1724::Init(int link, int crate, std::shared_ptr<Options>& opts) {
-  
+  fLink = link;
+  fCrate = crate;
   // Different initialization based on connection type (USB or PCI_card)
   std::string connection_type_USB = "USB";
   std::string connection_type_PCI = "PCI";

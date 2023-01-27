@@ -148,7 +148,7 @@ int main(int argc, char** argv){
   auto pool = std::make_shared<mongocxx::pool>(uri);
   auto client = pool->acquire();
   mongocxx::database db = (*client)[dbname];
-  mongocxx::collection control = db["control_new"];
+  mongocxx::collection control = db["control"];
   mongocxx::collection opts_collection = db["options"];
 
   // Logging
