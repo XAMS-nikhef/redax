@@ -13,7 +13,8 @@ V2718::~V2718(){
 }
 
 int V2718::Init(int link, int crate) {
-  if (CAENVME_Init(cvV2718, link, crate, &fBoardHandle))
+  // OLD INIT:: if (CAENVME_Init(cvV2718, link, crate, &fBoardHandle))
+  if (CAENVME_Init2(cvV2718, &link, crate, &fBoardHandle))
     return -1;
   return SendStopSignal(false);
 }

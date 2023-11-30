@@ -71,13 +71,17 @@ int V1724::Init(int link, int crate, std::shared_ptr<Options>& opts) {
       int link_PID = opts->GetInt("link_PID", 0);
       if (link_PID == 0){fLog->Entry(MongoLog::Error, "Please set link_PID in options file");}
   
-      fLog->Entry(MongoLog::Local, "%d %d %d \n",cvUSB_A4818_LOCAL,link_PID,crate);
-      a = CAENVME_Init(cvUSB_A4818_V3718_LOCAL,0,link_PID, &fBoardHandle);
-      //int a = CAENVME_Init(cvUSB_A4818, link_PID, crate, &fBoardHandle);
+      // OLD CODE - OBSOLETE a = CAENVME_Init(cvUSB_A4818_V3718_LOCAL,0,link_PID, &fBoardHandle);
+      a = CAENVME_Init2(cvUSB_A4818_V3718_LOCAL, &link_PID, 0, &fBoardHandle);
+      fLog->Entry(MongoLog::Local, "USB init:: %d %d %d \n",cvUSB_A4818_V3718_LOCAL,link_PID,crate);
+      fLog->Entry(MongoLog::Local, "USB init:: succes = %d \n",a);
+
   }
   else if (connection_type == connection_type_PCI){
-    a = CAENVME_Init(cvV2718, link, crate, &fBoardHandle);
-    fLog->Entry(MongoLog::Local, "%d %d %d \n",cvV2718,link,crate);
+// OLD INIT FUNCTION - DEPRECATED    a = CAENVME_Init(cvV2718, link, crate, &fBoardHandle);
+    a = CAENVME_Init2(cvV2718, &link, crate, &fBoardHandle);
+    fLog->Entry(MongoLog::Local, "PCI init:: %d %d %d \n",cvV2718,link,crate);
+    fLog->Entry(MongoLog::Local, "PCI init:: succes = %d \n",a);
   } else {
     fLog->Entry(MongoLog::Error, "noooo cant happen");
     return -1;

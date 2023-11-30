@@ -277,7 +277,7 @@ class DAQController():
 
         time_now = now()
 
-        #First check how often we have been timing out, if it happened to often
+        # First check how often we have been timing out, if it happened to often
         # something bad happened and we start from scratch again
         if self.missed_arm_cycles[detector]>self.max_arm_cycles and detector=='xams':
             self.logger

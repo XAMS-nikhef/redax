@@ -151,6 +151,7 @@ int main(int argc, char** argv){
   mongocxx::collection control = db["control"];
   mongocxx::collection opts_collection = db["options"];
 
+
   // Logging
   std::shared_ptr<MongoLog> fLog;
   if (log_dir == "nT")

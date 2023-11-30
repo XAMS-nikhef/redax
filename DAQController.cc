@@ -21,6 +21,9 @@
 // 2-armed
 // 3-running
 // 4-error
+//
+#define SW_START  0
+#define SIN_START 1
 
 DAQController::DAQController(std::shared_ptr<MongoLog>& log, std::string hostname){
   fLog=log;
@@ -126,39 +129,41 @@ int DAQController::Arm(std::shared_ptr<Options>& options){
 }
 
 int DAQController::Start(){
-  if(fOptions->GetInt("run_start", 0) == 0){
-    for(auto& link : fDigitizers ){
-      for(auto& digi : link.second){
+  //if(fOptions->GetInt("run_start", 0) == 0){
+  for(auto& link : fDigitizers ){
+    for(auto& digi : link.second){
 
-	fLog->Entry(MongoLog::Local, "board:: %i link:: %i", digi->bid(), digi->link());
-	// Ensure digitizer is ready to start
-	if(digi->EnsureReady(1000, 1000)!= true){
-	  fLog->Entry(MongoLog::Warning, "Digitizer not ready to start after sw command sent");
-	  return -1;
-	}
+      fLog->Entry(MongoLog::Local, "board:: %i crate:: %i link:: %i", digi->bid(), digi->crate(), digi->link());
+      // Ensure digitizer is ready to start
+      if(digi->EnsureReady(1000, 1000)!= true){
+        fLog->Entry(MongoLog::Warning, "Digitizer not ready to start after sw command sent");
+	return -1;
+      }
 
-	// Send start command for first digitizer
-	// APC software start for first digitizer in the chain
-	if(digi->crate() == 0){
-          digi->SoftwareStart();
-        } else {
-	  digi->SINStart();
-	}
-	// APC 
-	
+      // Send start command for first digitizer
+      // APC software start for first digitizer in the chain
+      // BE CAREFULL.... PROBABLY WANT TO REVERSE THE LOOP.... THIS ARMS THE SLAVE DIGITIZERS FIRST
+      // AND THE STARTS THE RUN......
+      if((fOptions->GetInt("run_start",0) == SW_START) && (digi->crate() == 0)){
+        digi->SoftwareStart();
 	// Ensure digitizer is started
 	if(digi->EnsureStarted(1000, 1000)!=true){
 	  fLog->Entry(MongoLog::Warning,
 		      "Timed out waiting for acquisition to start after SW start sent");
 	  return -1;
 	}
+      } else {
+	  digi->SINStart();
       }
+	// APC 
+	
     }
-  } else {
-    for (auto& link : fDigitizers)
-      for (auto& digi : link.second)
-        digi->SINStart();
   }
+  //} else {
+  //  for (auto& link : fDigitizers)
+  //    for (auto& digi : link.second)
+  //      digi->SINStart();
+  //}
   fStatus = DAXHelpers::Running;
   return 0;
 }
@@ -215,14 +220,14 @@ void DAQController::ReadData(int link){
 
   uint32_t board_status = 0;
 
-  // uint32_t channel_0_status = 0;
-  // uint32_t channel_1_status = 0;
-  // uint32_t channel_2_status = 0;
-  // uint32_t channel_3_status = 0;
-  // uint32_t channel_4_status = 0;
-  // uint32_t channel_5_status = 0;
-  // uint32_t channel_6_status = 0;
-  // uint32_t channel_7_status = 0;  
+  //uint32_t channel_0_status = 0;
+  //uint32_t channel_1_status = 0;
+  //uint32_t channel_2_status = 0;
+  //uint32_t channel_3_status = 0;
+  //uint32_t channel_4_status = 0;
+  //uint32_t channel_5_status = 0;
+  //uint32_t channel_6_status = 0;
+  //uint32_t channel_7_status = 0;  
 
   // uint32_t channel_0_dc = 0;
   // uint32_t channel_1_dc = 0;
@@ -244,6 +249,7 @@ void DAQController::ReadData(int link){
   int bytes_this_loop(0);
   fRunning[link] = true;
   std::chrono::microseconds sleep_time(fOptions->GetInt("us_between_reads", 10));
+  fLog->Entry(MongoLog::Local, "Sleep time %i", fOptions->GetInt("us_between_reads",10));
   int c = 0;
   const int num_threads = fNProcessingThreads;
   while(fReadLoop){
@@ -253,14 +259,14 @@ void DAQController::ReadData(int link){
       if(readcycler == 0){
         board_status = digi->GetAcquisitionStatus();
 
-        // channel_0_status = digi->ReadRegister(0x1088);
-        // channel_1_status = digi->ReadRegister(0x1188);
-        // channel_2_status = digi->ReadRegister(0x1288);
-        // channel_3_status = digi->ReadRegister(0x1388);
-        // channel_4_status = digi->ReadRegister(0x1488);
-        // channel_5_status = digi->ReadRegister(0x1588);
-        // channel_6_status = digi->ReadRegister(0x1688);
-        // channel_7_status = digi->ReadRegister(0x1788);
+        //channel_0_status = digi->ReadRegister(0x1088);
+        //channel_1_status = digi->ReadRegister(0x1188);
+        //channel_2_status = digi->ReadRegister(0x1288);
+        //channel_3_status = digi->ReadRegister(0x1388);
+        //channel_4_status = digi->ReadRegister(0x1488);
+        //channel_5_status = digi->ReadRegister(0x1588);
+        //channel_6_status = digi->ReadRegister(0x1688);
+        //channel_7_status = digi->ReadRegister(0x1788);
           
         // channel_0_dc = digi->ReadRegister(0x1098);
         // channel_1_dc = digi->ReadRegister(0x1198);
@@ -270,17 +276,16 @@ void DAQController::ReadData(int link){
         // channel_5_dc = digi->ReadRegister(0x1598);
         // channel_6_dc = digi->ReadRegister(0x1698);
         // channel_7_dc = digi->ReadRegister(0x1798);  
-        fLog->Entry(MongoLog::Local, "Board %i has status 0x%04x",
-            digi->bid(), board_status);
+        fLog->Entry(MongoLog::Local, "Board %i has status 0x%04x", digi->bid(), board_status);
 
-        // fLog->Entry(MongoLog::Local, "Ch 0 status reg has value 0x%04x", channel_0_status);
-        // fLog->Entry(MongoLog::Local, "Ch 1 status reg has value 0x%04x", channel_1_status);
-        // fLog->Entry(MongoLog::Local, "Ch 2 status reg has value 0x%04x", channel_2_status);
-        // fLog->Entry(MongoLog::Local, "Ch 3 status reg has value 0x%04x", channel_3_status);
-        // fLog->Entry(MongoLog::Local, "Ch 4 status reg has value 0x%04x", channel_4_status);
-        // fLog->Entry(MongoLog::Local, "Ch 5 status reg has value 0x%04x", channel_5_status);
-        // fLog->Entry(MongoLog::Local, "Ch 6 status reg has value 0x%04x", channel_6_status);
-        // fLog->Entry(MongoLog::Local, "Ch 7 status reg has value 0x%04x", channel_7_status);
+        //fLog->Entry(MongoLog::Local, "Ch 0 status reg has value 0x%04x", channel_0_status);
+        //fLog->Entry(MongoLog::Local, "Ch 1 status reg has value 0x%04x", channel_1_status);
+        //fLog->Entry(MongoLog::Local, "Ch 2 status reg has value 0x%04x", channel_2_status);
+        //fLog->Entry(MongoLog::Local, "Ch 3 status reg has value 0x%04x", channel_3_status);
+        //fLog->Entry(MongoLog::Local, "Ch 4 status reg has value 0x%04x", channel_4_status);
+        //fLog->Entry(MongoLog::Local, "Ch 5 status reg has value 0x%04x", channel_5_status);
+        //fLog->Entry(MongoLog::Local, "Ch 6 status reg has value 0x%04x", channel_6_status);
+        //fLog->Entry(MongoLog::Local, "Ch 7 status reg has value 0x%04x", channel_7_status);
 
         // fLog->Entry(MongoLog::Local, "Ch 0 dc reg has value 0x%04x", channel_0_dc);
         // fLog->Entry(MongoLog::Local, "Ch 1 dc reg has value 0x%04x", channel_1_dc);
