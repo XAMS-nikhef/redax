@@ -21,7 +21,7 @@ std::tuple<int, int, bool, uint32_t> V1725::UnpackEventHeader(std::u32string_vie
 }
 
 std::tuple<int64_t, int, uint16_t, std::u32string_view>
-V1730::UnpackChannelHeader(std::u32string_view sv, long, uint32_t, uint32_t, int, int) {
+V1725::UnpackChannelHeader(std::u32string_view sv, long, uint32_t, uint32_t, int, int) {
   // returns {timestamp (ns), words this channel, baseline, waveform}
   int words = sv[0]&0x7FFFFF;
   return {(long(sv[1]) | (long(sv[2]&0xFFFF)<<32))*fClockCycle,
