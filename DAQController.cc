@@ -1,6 +1,7 @@
 #include "DAQController.hh"
 #include "V1724.hh"
 #include "V1724_MV.hh"
+#include "V1725.hh"
 #include "V1730.hh"
 #include "f1724.hh"
 #include "DAXHelpers.hh"
@@ -59,15 +60,15 @@ int DAQController::Arm(std::shared_ptr<Options>& options){
     std::shared_ptr<V1724> digi;
     try{
       //fLog->Entry(MongoLog::Local, "%s", d.type);
-      
+
       if(d.type == "V1724_MV")
         digi = std::make_shared<V1724_MV>(fLog, fOptions, d.board, d.vme_address);
       else if(d.type == "V1730")
         digi = std::make_shared<V1730>(fLog, fOptions, d.board, d.vme_address);
+      else if(d.type == "V1725")
+        digi = std::make_shared<V1725>(fLog, fOptions, d.board, d.vme_address);
       else if(d.type == "f1724")
         digi = std::make_shared<f1724>(fLog, fOptions, d.board, 0);
-      else
-        digi = std::make_shared<V1724>(fLog, fOptions, d.board, d.vme_address);
       if (digi->Init(d.link, d.crate, fOptions))
         throw std::runtime_error("Board init failed");
       fDigitizers[d.link].emplace_back(digi);
@@ -78,7 +79,7 @@ int DAQController::Arm(std::shared_ptr<Options>& options){
       fDigitizers.clear();
       return -1;
     }
-  }
+   }
   fLog->Entry(MongoLog::Local, "This host has %i boards", num_boards);
   fLog->Entry(MongoLog::Local, "Sleeping for two seconds");
   // For the sake of sanity and sleeping through the night,
