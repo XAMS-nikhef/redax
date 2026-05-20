@@ -104,6 +104,7 @@ private:
   std::shared_ptr<MongoLog> fLog;
   std::string fHostname;
   std::string fDetector;
+  std::string fDetector_tmp;
   std::shared_ptr<mongocxx::pool> fPool;
   mongocxx::pool::entry fClient; // yes
   mongocxx::database fDB;

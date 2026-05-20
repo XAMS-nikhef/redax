@@ -181,7 +181,7 @@ int MongoLog::Entry(int priority, const std::string& message, ...){
 
 
 fs::path MongoLog_nT::OutputDirectory(struct tm* date) {
-  char temp[6];
+  char temp[24];
   std::sprintf(temp, "%02d.%02d", date->tm_mon+1, date->tm_mday);
   return fOutputDir / std::to_string(date->tm_year+1900) / std::string(temp);
 }
