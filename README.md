@@ -16,9 +16,117 @@ See documentation here: [link](https://axfoundation.github.io/redax)
 
 ## Install
 
-To build:
+The instructions below assume **Ubuntu 18.04 LTS** and a fresh system. Adjust package names as needed for other distributions.
 
-make
+### 1. System packages
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential \
+    git \
+    cmake \
+    pkg-config \
+    libssl-dev \
+    libsasl2-dev \
+    libblosc-dev \
+    liblz4-dev \
+    tcl8.6-dev \
+    tcl-expect-dev   # only needed for DDC10 support
+```
+
+### 2. CAEN libraries
+
+Download and install the following from [caen.it](http://www.caen.it):
+
+- **CAENVMElib** v2.5 or later
+- **Driver** for your CAEN PCI/PCIe optical link card (e.g. A2818, A3818)
+
+Each package ships with an `install` script; follow the vendor instructions. After installation verify with:
+
+```bash
+ls /usr/lib/libCAENVME*
+```
+
+### 3. MongoDB C driver
+
+The CXX driver (step 4) depends on the C driver.
+
+```bash
+# Download (pin a version for reproducibility)
+wget https://github.com/mongodb/mongo-c-driver/releases/download/1.9.2/mongo-c-driver-1.9.2.tar.gz
+tar -xvzf mongo-c-driver-1.9.2.tar.gz
+cd mongo-c-driver-1.9.2
+
+./configure --disable-automatic-init-and-cleanup
+make -j$(nproc)
+sudo make install
+cd ..
+```
+
+### 4. MongoDB CXX driver
+
+```bash
+git clone https://github.com/mongodb/mongo-cxx-driver.git \
+    --branch releases/stable --depth 1
+cd mongo-cxx-driver
+mkdir -p build && cd build
+
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      ..
+
+sudo make EP_mnmlstc_core   # install polyfill
+make -j$(nproc)
+sudo make install
+cd ../..
+```
+
+After installation, confirm pkg-config can find the driver:
+
+```bash
+pkg-config --modversion libmongocxx
+```
+
+### 5. MongoDB server (if running locally)
+
+Skip this step if you are connecting to an existing remote/cloud deployment.
+
+Follow the [official MongoDB installation guide](https://www.mongodb.com/docs/manual/administration/install-on-linux/) for your OS. After installation:
+
+```bash
+sudo systemctl enable --now mongod
+```
+
+**Enable authentication** and create a DAQ user — see the [MongoDB security checklist](https://www.mongodb.com/docs/manual/administration/security-checklist/) and the [Database Setup](#database-setup) section below.
+
+### 6. Python environment (dispatcher & monitor)
+
+Python 3 is required. Using a virtual environment or [Anaconda](https://www.anaconda.com/) is recommended on shared systems.
+
+```bash
+pip install psutil pymongo
+```
+
+### 7. Clone and build redax
+
+```bash
+git clone https://github.com/AxFoundation/redax.git
+cd redax
+make -j$(nproc)
+```
+
+The resulting binary is `./redax`.
+
+### 8. Initialize the DAQ database collections
+
+A helper script creates the required capped/TTL collections:
+
+```bash
+python helpers/initialize_databases.py
+```
+
+Edit the script (or pass arguments) to point it at your MongoDB URI and database name before running.
 
 ## Starting the Reader Process
 ```
