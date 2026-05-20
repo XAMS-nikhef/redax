@@ -78,9 +78,7 @@ public:
   long int GetLongInt(std::string, long int=-1);
   double GetDouble(std::string, double=-1);
   std::string GetString(std::string, std::string="");
-  std::string GetNestedString(std::string, std::string="");
   std::string Hostname() {return fHostname;}
-  std::string Detector() {return fDetector;}
 
   std::vector<BoardType> GetBoards(std::string);
   std::vector<RegisterType> GetRegisters(int, bool=false);
@@ -90,7 +88,7 @@ public:
   int GetCrateOpt(CrateOptions &ret);
   int GetHEVOpt(HEVOptions &ret);
   int16_t GetChannel(int, int);
-  int GetNestedInt(std::string, int=-1);
+  int GetNestedInt(std::string, int);
   std::vector<uint16_t> GetThresholds(int);
   int GetFaxOptions(fax_options_t&);
   uint16_t GetSingleDAC(int, int, uint16_t);

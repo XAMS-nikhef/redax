@@ -116,4 +116,4 @@ protected:
   virtual std::string LogFileName(struct tm*);
   virtual std::experimental::filesystem::path OutputDirectory(struct tm*);
 };
-#endif // _MONGOLOG_HH_ defined
+#endif

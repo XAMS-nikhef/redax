@@ -16,7 +16,6 @@ int V2718::Init(int link, int crate) {
   // OLD INIT:: if (CAENVME_Init(cvV2718, link, crate, &fBoardHandle))
   if (CAENVME_Init2(cvV2718, &link, crate, &fBoardHandle))
     return -1;
-  fLog->Entry(MongoLog::Local, "V2718 init, handle %i", fBoardHandle);
   return SendStopSignal(false);
 }
 
@@ -38,16 +37,6 @@ int V2718::SendStartSignal(){
 
   // Set the output register
   unsigned int data = 0x0;
-  int ret;
-  if ((ret = CAENVME_ReadRegister(fBoardHandle, cvOutRegSet, &data)) != cvSuccess) {
-    fLog->Entry(MongoLog::Local, "Could not read V2718 output? ret %i", ret);
-    // fail?
-  } else {
-    fLog->Entry(MongoLog::Local, "Current V2718 output status: %x", data);
-    if (data & cvOut0Bit) fLog->Entry(MongoLog::Local, "Orphaned S-IN?");
-  }
-
-  data = 0;
   if(fCopts.neutron_veto)            //n_veto soonTM
     data+=cvOut4Bit;
   if(fCopts.led_trigger)
@@ -119,21 +108,11 @@ int V2718::SendStopSignal(bool end){
   // Line 4 : NV S-IN Logic
   CAENVME_SetOutputConf(fBoardHandle, cvOutput4, cvDirect, cvActiveHigh, cvManualSW);
 
-  // do we somehow have an orphaned S-IN?
-  unsigned int data = 0x0;
-  int ret;
-  if ((ret = CAENVME_ReadRegister(fBoardHandle, cvOutRegSet, &data)) != cvSuccess) {
-    fLog->Entry(MongoLog::Local, "Could not read V2718 output? ret %i", ret);
-    // fail?
-  } else {
-    fLog->Entry(MongoLog::Local, "Current V2718 output status: %x", data);
-    if (data & cvOut0Bit) fLog->Entry(MongoLog::Local, "Orphaned S-IN?");
-  }
 
   // Set the output register
-  data = 0;
+  unsigned int data = 0x0;
   CAENVME_SetOutputRegister(fBoardHandle, data);
-  fLog->Entry(MongoLog::Local, "V2718 output reset");
+
   if(end){
     if(CAENVME_End(fBoardHandle)!= cvSuccess){
       fLog->Entry(MongoLog::Warning, "Failed to end crate");
