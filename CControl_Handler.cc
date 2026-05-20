@@ -160,7 +160,7 @@ int CControl_Handler::Stop(){
   fV1495.reset();
   fV2718.reset();
 #ifdef HASDDC10
-  // HEV cleans up on reset
+  // Don't need to stop the DDC10 but just clean up a bit
   fDDC10.reset();
 #endif
   fOptions.reset();
